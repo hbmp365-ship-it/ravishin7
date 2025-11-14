@@ -3,6 +3,7 @@ import { CopyIcon, CheckIcon, SpreadsheetIcon } from './icons';
 import { generateImage } from '../services/geminiService';
 import { uploadImageToS3 } from '../services/s3Service';
 
+// 희엽님 계정
 interface ContentDisplayProps {
   content: string;
   suggestions: string[];
