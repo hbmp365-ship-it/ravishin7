@@ -18,15 +18,15 @@ const formatUserInput = (input: UserInput): string => {
   if (input.userText) {
     userPrompt += `user_text: ${input.userText}\n`;
   }
-  if (input.format === '인스타 카드') {
-    userPrompt += `카드 수: ${input.cardCount}\n`;
+  if (input.format === 'INSTAGRAM-CARD') {
+    userPrompt += `card_count: ${input.cardCount}\n`;
   }
-  if (input.format === '네이버 블로그' || input.format === '기타 커뮤니티') {
-    userPrompt += `블로그 텍스트 분량: ${input.blogLength}\n`;
+  if (input.format === 'NAVER-BLOG/BAND' || input.format === 'ETC-BANNER') {
+    userPrompt += `text_length_level: ${input.blogLength}\n`;
   }
-  if (input.format === '인스타 릴스' || input.format === '유튜브 숏츠') {
-    userPrompt += `영상 길이: ${input.videoLength}\n`;
-    userPrompt += `장면 수: ${input.sceneCount}\n`;
+  if (input.format === 'YOUTUBE-SHORTFORM') {
+    userPrompt += `video_length_level: ${input.videoLength}\n`;
+    userPrompt += `scene_count: ${input.sceneCount}\n`;
   }
   if (input.tone) {
     userPrompt += `톤앤매너: ${input.tone}\n`;
