@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { generateImage } from '../services/geminiService';
 import { uploadImageToS3, deleteImageFromS3 } from '../services/s3Service';
 import { SparklesIcon, CopyIcon, CheckIcon, MailIcon } from './icons';
+import { IMAGE_MODELS } from '../constants';
 
 interface ImageGeneratorProps {
   initialPrompt?: string;
@@ -9,6 +10,7 @@ interface ImageGeneratorProps {
 
 export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt }) => {
   const [prompt, setPrompt] = useState('');
+  const [selectedModel, setSelectedModel] = useState(IMAGE_MODELS[0].id);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
     setUploadError(null);
 
     try {
-      const base64Image = await generateImage(p);
+      const base64Image = await generateImage(p, selectedModel);
       setImageUrl(`data:image/jpeg;base64,${base64Image}`);
       
       // 이미지 생성 후 자동으로 S3에 업로드 (프롬프트 전달)
@@ -59,7 +61,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [selectedModel]);
 
   useEffect(() => {
     if (initialPrompt) {
@@ -183,13 +185,13 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
   };
 
 
-  const commonInputClass = "w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1FA77A] focus:border-[#1FA77A] transition-colors";
+  const commonInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 px-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#1FA77A] focus:border-[#1FA77A] transition-colors placeholder:text-gray-400";
 
   return (
-    <div className="bg-gray-800/50 p-6 rounded-b-xl rounded-r-xl shadow-lg border border-t-0 border-gray-700 min-h-[calc(100vh-13rem)] flex flex-col">
+    <div className="bg-white p-6 rounded-b-xl rounded-r-xl shadow-lg border border-gray-200 border-t-0 min-h-[calc(100vh-13rem)] flex flex-col">
       <form onSubmit={handleSubmit} className="space-y-4 mb-6">
         <div>
-            <label htmlFor="imagePrompt" className="block text-sm font-medium text-gray-400 mb-1">이미지 프롬프트</label>
+            <label htmlFor="imagePrompt" className="block text-sm font-medium text-gray-600 mb-1">이미지 프롬프트</label>
             <textarea 
             id="imagePrompt" 
             value={prompt} 
@@ -199,7 +201,24 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
             required 
             />
         </div>
-        <button type="submit" disabled={isLoading || !prompt.trim()} className="w-full flex items-center justify-center bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2.5 px-4 rounded-md transition-all duration-300 disabled:bg-gray-600 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100">
+        <div>
+            <label className="block text-sm font-medium text-gray-600 mb-2">이미지 생성 모델</label>
+            <div className="flex rounded-md shadow-sm">
+                {IMAGE_MODELS.map((model, index) => (
+                    <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => setSelectedModel(model.id)}
+                        className={`relative inline-flex items-center justify-center px-4 py-2 text-sm font-medium transition-colors focus:z-10 focus:outline-none focus:ring-2 focus:ring-[#1FA77A] ${
+                            selectedModel === model.id ? 'bg-[#1FA77A] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
+                        } ${index === 0 ? 'rounded-l-md' : ''} ${index === IMAGE_MODELS.length - 1 ? 'rounded-r-md' : '-ml-px border-l-0'} border border-gray-300`}
+                    >
+                        {model.label}
+                    </button>
+                ))}
+            </div>
+        </div>
+        <button type="submit" disabled={isLoading || !prompt.trim()} className="w-full flex items-center justify-center bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2.5 px-4 rounded-md transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100">
           {isLoading ? (
             <>
               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -216,21 +235,21 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
           )}
         </button>
       </form>
-      <div className="flex-grow flex items-center justify-center bg-gray-900/50 rounded-lg p-4">
+      <div className="flex-grow flex items-center justify-center bg-gray-50 rounded-lg p-4">
         {isLoading && (
            <div className="flex flex-col items-center justify-center h-full">
                 <svg className="animate-spin h-10 w-10 text-[#1FA77A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <p className="mt-4 text-gray-400">AI가 이미지를 그리고 있습니다...</p>
+                <p className="mt-4 text-gray-600">AI가 이미지를 그리고 있습니다...</p>
             </div>
         )}
-        {error && <div className="text-red-400 text-center p-4">{error}</div>}
+        {error && <div className="text-red-600 text-center p-4">{error}</div>}
         {!isLoading && !error && !imageUrl && (
             <div className="text-center text-gray-500">
                 <div className="text-4xl mb-4">🖼️</div>
-                <h3 className="text-lg font-semibold text-gray-300">이미지 생성</h3>
+                <h3 className="text-lg font-semibold text-gray-800">이미지 생성</h3>
                 <p className="max-w-md mt-1">프롬프트를 입력하여 멋진 이미지를 생성하거나, 콘텐츠 생성 탭에서 제안된 프롬프트를 사용해보세요.</p>
             </div>
         )}
@@ -241,7 +260,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
               <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                   <button 
                       onClick={handleCopyImage}
-                      className="flex items-center text-sm bg-gray-800/70 backdrop-blur-sm hover:bg-gray-700/90 text-gray-200 font-medium py-2 px-3 rounded-md transition-colors"
+                      className="flex items-center text-sm bg-white/70 backdrop-blur-sm hover:bg-white/90 text-gray-800 font-medium py-2 px-3 rounded-md transition-colors"
                   >
                       {isCopied ? <CheckIcon className="w-4 h-4 mr-2 text-green-400" /> : <CopyIcon className="w-4 h-4 mr-2" />}
                       {isCopied ? '복사 완료!' : '이미지 복사'}
@@ -250,9 +269,9 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
             </div>
 
             {/* S3 업로드 상태 및 URL 표시 */}
-            <div className="w-full max-w-md border-t border-gray-700 pt-4 space-y-4">
+            <div className="w-full max-w-md border-t border-gray-200 pt-4 space-y-4">
               {isUploading && (
-                <div className="flex items-center justify-center text-gray-400 text-sm">
+                <div className="flex items-center justify-center text-gray-600 text-sm">
                   <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -262,14 +281,14 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
               )}
               
               {uploadError && (
-                <div className="text-red-400 text-sm p-2 bg-red-900/20 rounded-md">
+                <div className="text-red-600 text-sm p-2 bg-red-50 rounded-md">
                   {uploadError}
                 </div>
               )}
 
               {s3ImageUrl && (
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-400">
+                  <label className="block text-sm font-medium text-gray-600">
                     S3 이미지 URL
                   </label>
                   <div className="flex gap-2">
@@ -302,13 +321,13 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
                     </button>
                   </div>
                   {deleteError && (
-                    <p className="text-red-400 text-sm">{deleteError}</p>
+                    <p className="text-red-600 text-sm">{deleteError}</p>
                   )}
                 </div>
               )}
 
               <form onSubmit={handleSendEmail} className="space-y-2">
-                <label htmlFor="emailInput" className="block text-sm font-medium text-gray-400">
+                <label htmlFor="emailInput" className="block text-sm font-medium text-gray-600">
                   이미지를 이메일로 받기
                 </label>
                 <div className="flex gap-2">
@@ -324,7 +343,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
                   <button
                     type="submit"
                     disabled={isSending || sendSuccess}
-                    className="flex items-center justify-center bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    className="flex items-center justify-center bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                   >
                     {isSending ? (
                       <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -341,7 +360,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
                     </span>
                   </button>
                 </div>
-                {sendError && <p className="text-red-400 text-sm">{sendError}</p>}
+                {sendError && <p className="text-red-500 text-sm">{sendError}</p>}
               </form>
             </div>
           </div>

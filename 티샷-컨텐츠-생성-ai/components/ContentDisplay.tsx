@@ -74,7 +74,7 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
   
   if (status.isLoading) {
     return (
-      <div className="bg-gray-900/50 p-3 rounded-lg mt-2 flex items-center justify-center aspect-square">
+      <div className="bg-gray-100 p-3 rounded-lg mt-2 flex items-center justify-center aspect-square">
         <svg className="animate-spin h-8 w-8 text-[#1FA77A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -85,9 +85,9 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
 
   if (status.error) {
      return (
-        <div className="bg-red-900/30 border border-red-700/50 text-red-300 p-3 rounded-lg mt-2 text-center text-sm flex flex-col items-center justify-center aspect-square">
+        <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg mt-2 text-center text-sm flex flex-col items-center justify-center aspect-square">
             <p className="font-semibold">이미지 생성 실패</p>
-            <button onClick={() => onGenerate(text)} className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-md mt-2 transition-colors">재시도</button>
+            <button onClick={() => onGenerate(text)} className="text-sm bg-red-100 hover:bg-red-200 px-3 py-1 rounded-md mt-2 transition-colors">재시도</button>
         </div>
      );
   }
@@ -95,30 +95,30 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
   if (status.url) {
     const filename = text.substring(0, 40).replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.jpeg';
     return (
-        <div className="bg-gray-900 rounded-lg mt-2 group relative aspect-square overflow-hidden border border-gray-700">
+        <div className="bg-gray-100 rounded-lg mt-2 group relative aspect-square overflow-hidden border border-gray-200">
             <img src={status.url} alt={text} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-center">
                  <p className="text-white text-xs mb-4 leading-snug max-h-24 overflow-auto">{text}</p>
                  <a href={status.url} download={filename} className="text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2 px-4 rounded-md transition-colors w-full text-center">다운로드</a>
-                 <button onClick={() => onSwitchToImageTab(text)} className="mt-2 text-xs text-gray-300 hover:underline">프롬프트 수정</button>
+                 <button onClick={() => onSwitchToImageTab(text)} className="mt-2 text-xs text-gray-200 hover:underline">프롬프트 수정</button>
             </div>
         </div>
     );
   }
   
   return (
-    <div className="bg-gray-800 p-3 rounded-lg mt-2 flex items-center justify-between group">
-      <p className="text-gray-300 text-sm font-mono flex-grow pr-2">📸 {text}</p>
+    <div className="bg-gray-100 p-3 rounded-lg mt-2 flex items-center justify-between group">
+      <p className="text-gray-700 text-sm font-mono flex-grow pr-2">📸 {text}</p>
       <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <button 
           onClick={() => onGenerate(text)} 
           title="이미지 생성하기" 
-          className="text-sm bg-gray-700 hover:bg-[#1FA77A] text-white font-medium py-1 px-3 rounded-md transition-colors"
+          className="text-sm bg-gray-200 hover:bg-[#1FA77A] text-gray-800 hover:text-white font-medium py-1 px-3 rounded-md transition-colors"
         >
           생성
         </button>
-        <button onClick={handleCopy} title="프롬프트 복사" className="p-1.5 rounded-md text-gray-400 hover:bg-gray-700 hover:text-white transition">
-          {copied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <CopyIcon className="w-4 h-4" />}
+        <button onClick={handleCopy} title="프롬프트 복사" className="p-1.5 rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-800 transition">
+          {copied ? <CheckIcon className="w-4 h-4 text-green-500" /> : <CopyIcon className="w-4 h-4" />}
         </button>
       </div>
     </div>
@@ -214,8 +214,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         }
 
         try {
-            // 각 이미지를 순차적으로 생성
-            const base64Image = await generateImage(prompt);
+            // 각 이미지를 순차적으로 생성 (gemini-2.5-flash-image 모델 사용 - 빠른 생성)
+            const base64Image = await generateImage(prompt, 'gemini-2.5-flash-image');
             
             // S3에 업로드하여 전체 URL 가져오기
             let s3Url: string | null = null;
@@ -276,15 +276,19 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     let coverPrompt = '';
     const cards: CardData[] = [];
     let hashtags: string[] = [];
+    let postingText = '';
+    let sourcesText = '';
 
     const lines = content.split('\n');
     let currentCard: CardData | null = null;
     let currentBodyParts: string[] = [];
     let isBeforeCards = true;
+    let isParsingPostingText = false;
+    let postingTextParts: string[] = [];
 
     const pushCard = () => {
         if (currentCard) {
-            currentCard.body = currentBodyParts.join(' ').trim();
+            currentCard.body = currentBodyParts.join('\n').trim();
             cards.push(currentCard);
             currentCard = null;
             currentBodyParts = [];
@@ -292,6 +296,21 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     };
 
     lines.forEach(line => {
+        if (line.startsWith('✍️ 포스팅 글')) {
+            isParsingPostingText = true;
+            pushCard(); 
+            return; 
+        }
+        
+        if (isParsingPostingText) {
+             if (line.startsWith('후속 제안:') || line.startsWith('🔎 참고자료')) {
+                isParsingPostingText = false;
+            } else {
+                postingTextParts.push(line);
+            }
+            return;
+        }
+
         if (line.startsWith('제목:')) {
             title = line.replace('제목:', '').trim();
         } else if (isBeforeCards && line.startsWith('📸 이미지 프롬프트:')) {
@@ -317,6 +336,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         }
     });
     pushCard();
+    postingText = postingTextParts.join('\n').trim();
 
     const getFilename = (prompt: string) => {
         if (!prompt) return '';
@@ -353,7 +373,39 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         }
     }
     
-    const escapeTsvField = (field: string = '') => `${field.replace(/\t/g, ' ').replace(/\n/g, ' ')}`;
+    // 참고자료 섹션 추출
+    const sourcesMatch = content.match(/🔎 참고자료\n([\s\S]*?)(?=\n후속 제안:|$)/);
+    if(sourcesMatch && sourcesMatch[1]) {
+        sourcesText = sourcesMatch[1].trim();
+    } else {
+        sourcesText = sources.map(s => `${s.title} (${s.uri})`).join('\n');
+    }
+
+    // Column 58 (index 57) for postingText
+    const postingTextColIndex = 57;
+    let padding = postingTextColIndex - dataRow.length;
+    if (padding > 0) dataRow.push(...Array(padding).fill(''));
+    dataRow.push(postingText);
+
+    // Column 60 (index 59) for sourceInfo
+    const sourceInfoColIndex = 59;
+    padding = sourceInfoColIndex - dataRow.length;
+    if (padding > 0) dataRow.push(...Array(padding).fill(''));
+    dataRow.push(sourcesText);
+
+    // Column 62 (index 61) for full content
+    const fullContentColIndex = 61;
+    padding = fullContentColIndex - dataRow.length;
+    if (padding > 0) dataRow.push(...Array(padding).fill(''));
+    dataRow.push(content);
+
+    const escapeTsvField = (field: string = '') => {
+      const needsQuoting = field.includes('\t') || field.includes('\n') || field.includes('"');
+      if (needsQuoting) {
+        return `"${field.replace(/"/g, '""')}"`;
+      }
+      return field;
+    };
     
     const tsvContent = dataRow.map(escapeTsvField).join('\t');
 
@@ -362,7 +414,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       setIsCsvCopied(true);
       setTimeout(() => setIsCsvCopied(false), 2000);
     }
-}, [content, imageStatuses, category]);
+}, [content, imageStatuses, category, sources]);
 
 
   const renderedContent = useMemo(() => {
@@ -372,11 +424,13 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     const elements: React.ReactNode[] = [];
     let currentCard: React.ReactNode[] = [];
     let inCard = false;
+    let inPostingSection = false;
+    let postingContent: React.ReactNode[] = [];
 
     const pushCard = () => {
       if (currentCard.length > 0) {
         elements.push(
-          <div key={`card-container-${elements.length}`} className="bg-gray-800 p-4 rounded-lg border border-gray-700 space-y-2">
+          <div key={`card-container-${elements.length}`} className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-2">
             {currentCard}
           </div>
         );
@@ -384,16 +438,73 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       }
     };
 
+    const pushPostingSection = () => {
+      if (postingContent.length > 0) {
+        elements.push(
+          <div key={`posting-section-${elements.length}`} className="mt-6 pt-6 border-t border-gray-200">
+            <h3 className="text-xl font-semibold text-[#1FA77A] mb-4">✍️ 포스팅 글</h3>
+            <div className="space-y-3 text-gray-700">
+              {postingContent}
+            </div>
+          </div>
+        );
+        postingContent = [];
+      }
+    };
+
     lines.forEach((line, index) => {
       const key = `line-${index}`;
+      
+      // 포스팅 글 섹션 시작
+      if (line.startsWith('✍️ 포스팅 글')) {
+        pushCard();
+        pushPostingSection();
+        inCard = false;
+        inPostingSection = true;
+        return;
+      }
+      
+      // 포스팅 글 섹션 종료 조건
+      if (inPostingSection && (line.startsWith('후속 제안') || line.startsWith('🔎 참고자료') || line.startsWith('🔎 참고'))) {
+        pushPostingSection();
+        inPostingSection = false;
+        if (line.startsWith('후속 제안')) {
+          return;
+        }
+      }
+      
+      // 포스팅 글 내용 처리
+      if (inPostingSection) {
+        if (line.startsWith('🎵 추천 BGM:') || line.startsWith('🎵')) {
+          postingContent.push(
+            <p key={key} className="text-gray-600 font-medium mt-2">
+              {line}
+            </p>
+          );
+        } else if (line.startsWith('#')) {
+          postingContent.push(
+            <p key={key} className="text-[#1FA77A] font-medium">
+              {line}
+            </p>
+          );
+        } else if (line.trim()) {
+          postingContent.push(
+            <p key={key} className="text-gray-700 whitespace-pre-wrap">
+              {line}
+            </p>
+          );
+        }
+        return;
+      }
+      
       if (line.match(/^제목(\(.*\))?:/)) {
         pushCard();
         inCard = false;
-        elements.push(<h2 key={key} className="text-2xl font-bold text-white mb-2 mt-4">{line}</h2>);
+        elements.push(<h2 key={key} className="text-2xl font-bold text-gray-900 mb-2 mt-4">{line}</h2>);
       } else if (line.startsWith('핵심 메시지') || line.startsWith('카드 수')) {
         pushCard();
         inCard = false;
-        elements.push(<p key={key} className="text-gray-400 mb-4">{line}</p>);
+        elements.push(<p key={key} className="text-gray-600 mb-4">{line}</p>);
       } else if (line.startsWith('[Card') || line.startsWith('[Scene')) {
         pushCard();
         inCard = true;
@@ -401,7 +512,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         currentCard.push(<h3 key={key} className="text-lg font-semibold text-[#1FA77A] mb-2">{title}</h3>);
       } else if (line.startsWith('💡 소제목:')) {
         const subtitle = line.replace('💡 소제목:', '').trim();
-        (inCard ? currentCard : elements).push(<p key={key} className="font-bold text-gray-200">{`💡 ${subtitle}`}</p>);
+        (inCard ? currentCard : elements).push(<p key={key} className="font-bold text-gray-800">{`💡 ${subtitle}`}</p>);
       } else if (line.startsWith('📸 이미지 프롬프트:')) {
         const prompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
         const status = imageStatuses[prompt] || { url: null, s3Url: null, isLoading: false, error: null };
@@ -416,13 +527,13 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       } else if (line.startsWith('#')) {
         pushCard();
         inCard = false;
-        elements.push(<p key={key} className="text-blue-400 mt-4">{line}</p>);
+        elements.push(<p key={key} className="text-[#1FA77A] mt-4">{line}</p>);
       } else if (line.startsWith('후속 제안')) {
           return;
       } else if (line.startsWith('[섹션')) {
         pushCard();
         inCard = false;
-        elements.push(<h3 key={key} className="text-xl font-semibold text-white mt-6 mb-2">{line.replace(/\[|\]/g, '')}</h3>);
+        elements.push(<h3 key={key} className="text-xl font-semibold text-gray-900 mt-6 mb-2">{line.replace(/\[|\]/g, '')}</h3>);
       } else if (line.startsWith('✍️') || line.startsWith('📚') || line.startsWith('✅') || line.startsWith('🔎') || line.startsWith('🎬')) {
         pushCard();
         inCard = false;
@@ -433,22 +544,23 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
             elements.push(<h3 key={key} className="text-xl font-semibold text-[#1FA77A] mt-6 mb-2">{line}</h3>);
         }
       } else if (line.trim()) {
-        (inCard ? currentCard : elements).push(<p key={key} className="text-gray-300 whitespace-pre-wrap">{line}</p>);
+        (inCard ? currentCard : elements).push(<p key={key} className="text-gray-700 whitespace-pre-wrap">{line}</p>);
       }
     });
 
     pushCard();
+    pushPostingSection();
     return elements;
   }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage]);
 
   return (
-    <div className="bg-gray-800/50 p-6 rounded-b-xl rounded-r-xl shadow-lg border border-t-0 border-gray-700 min-h-[calc(100vh-13rem)] flex flex-col">
+    <div className="bg-white p-6 rounded-b-xl rounded-r-xl shadow-lg border border-t-0 border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
       {content && !isLoading && (
         <div className="self-end mb-4 flex flex-wrap gap-2 justify-end">
              {isInstagramCardFormat && (
                 <button 
                     onClick={handleCopyToClipboardForSpreadsheet} 
-                    className="flex items-center text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-2 px-4 rounded-md transition-colors"
+                    className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors"
                 >
                     {isCsvCopied ? <CheckIcon className="w-4 h-4 mr-2 text-green-400" /> : <SpreadsheetIcon className="w-4 h-4 mr-2" />}
                     {isCsvCopied ? '복사 완료!' : '스프레드시트용 데이터 복사'}
@@ -458,7 +570,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                 <button 
                     onClick={handleGenerateAllImages} 
                     disabled={isBatchGenerating} 
-                    className="flex items-center text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-500 disabled:cursor-wait"
+                    className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-300 disabled:cursor-wait"
                 >
                     {isBatchGenerating && <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>}
                     {isBatchGenerating ? '생성 중...' : `이미지 일괄 생성 (${imagePrompts.length})`}
@@ -482,14 +594,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p className="mt-4 text-gray-400">AI가 열심히 콘텐츠를 만들고 있습니다...</p>
+            <p className="mt-4 text-gray-600">AI가 열심히 콘텐츠를 만들고 있습니다...</p>
           </div>
         )}
-        {error && <div className="text-red-400 text-center">{error}</div>}
+        {error && <div className="text-red-600 text-center">{error}</div>}
         {!isLoading && !error && !content && (
            <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
              <div className="text-4xl mb-4">⛳️</div>
-            <h3 className="text-lg font-semibold text-gray-300">TeeShot 콘텐츠 생성기</h3>
+            <h3 className="text-lg font-semibold text-gray-800">TeeShot 콘텐츠 생성기</h3>
             <p className="max-w-md mt-1">왼쪽 양식을 작성하고 '콘텐츠 생성하기'를 클릭하여 골프 관련 소셜 미디어 콘텐츠를 만들어보세요.</p>
           </div>
         )}
@@ -497,14 +609,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
             <div className="space-y-4">
               {renderedContent}
               {suggestions && suggestions.length > 0 && (
-                <div className="mt-8 pt-6 border-t border-gray-700">
-                    <h4 className="text-lg font-semibold text-gray-300 mb-3">다음 콘텐츠 제안:</h4>
+                <div className="mt-8 pt-6 border-t border-gray-200">
+                    <h4 className="text-lg font-semibold text-gray-800 mb-3">다음 콘텐츠 제안:</h4>
                     <div className="flex flex-wrap gap-3">
                         {suggestions.map((suggestion, index) => (
                             <button
                                 key={index}
                                 onClick={() => onSuggestionClick(suggestion)}
-                                className="bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium py-2 px-4 rounded-full text-sm transition-all duration-200 transform hover:scale-105"
+                                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-full text-sm transition-all duration-200 transform hover:scale-105"
                             >
                                 {suggestion}
                             </button>
@@ -513,11 +625,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                 </div>
               )}
                {sources && sources.length > 0 && (
-                <div className="mt-8 pt-6 border-t border-gray-700">
-                    <h4 className="text-lg font-semibold text-gray-300 mb-3">AI가 참고한 자료</h4>
+                <div className="mt-8 pt-6 border-t border-gray-200">
+                    <h4 className="text-lg font-semibold text-gray-800 mb-3">AI가 참고한 자료</h4>
                     <ul className="list-disc list-inside space-y-2">
                         {sources.map((source, index) => (
-                            <li key={index} className="text-gray-400">
+                            <li key={index} className="text-gray-600">
                                 <a 
                                     href={source.uri} 
                                     target="_blank" 

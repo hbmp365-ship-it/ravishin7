@@ -72,10 +72,10 @@ const App: React.FC = () => {
   const TabButton: React.FC<{ tabName: 'content' | 'image' | 'video'; label: string; }> = ({ tabName, label }) => (
       <button
         onClick={() => setActiveTab(tabName)}
-        className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+        className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 ${
           activeTab === tabName
-            ? 'bg-gray-800/50 border-gray-700 border-b-0 text-white'
-            : 'bg-transparent text-gray-400 hover:text-white'
+            ? 'border-[#1FA77A] text-[#1FA77A]'
+            : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
         }`}
       >
         {label}
@@ -83,12 +83,12 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gray-900 font-sans flex flex-col">
+    <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
       <Header />
       <main className="flex-grow container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className={`lg:col-span-4 transition-opacity duration-300 ${activeTab !== 'content' ? 'hidden' : 'block'}`}>
-             <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 sticky top-8">
+             <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 sticky top-24">
                 <InputForm 
                   onGenerate={handleGenerate} 
                   isLoading={isLoading} 
@@ -97,7 +97,7 @@ const App: React.FC = () => {
              </div>
           </div>
           <div className={`transition-all duration-300 ${activeTab === 'content' ? "lg:col-span-8" : "lg:col-span-12"}`}>
-            <div className="flex mb-[-1px] border-b border-gray-700">
+            <div className="flex border-b border-gray-200">
                 <TabButton tabName="content" label="콘텐츠 생성" />
                 <TabButton tabName="image" label="이미지 생성" />
                 <TabButton tabName="video" label="영상 생성" />

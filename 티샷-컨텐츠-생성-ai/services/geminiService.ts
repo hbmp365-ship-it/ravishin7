@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import type { UserInput, GeneratedContent } from '../types';
 import { SYSTEM_PROMPT } from '../constants';
 
@@ -156,27 +156,47 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
 
 };
 
-export const generateImage = async (prompt: string): Promise<string> => {
+export const generateImage = async (prompt: string, model: string = 'imagen-4.0-generate-001'): Promise<string> => {
   if (!process.env.API_KEY) {
     throw new Error("API_KEY is not set in environment variables.");
   }
   
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-  const response = await retryWithBackoff(async () => {
-    return await ai.models.generateImages({
-      model: 'imagen-4.0-generate-001',
-      prompt: prompt,
-      config: {
-        numberOfImages: 1,
-        outputMimeType: 'image/jpeg',
-        aspectRatio: '1:1',
-      },
+  if (model === 'imagen-4.0-generate-001') {
+    const response = await retryWithBackoff(async () => {
+      return await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: prompt,
+        config: {
+          numberOfImages: 1,
+          outputMimeType: 'image/jpeg',
+          aspectRatio: '1:1',
+        },
+      });
     });
-  });
 
-  if (response.generatedImages && response.generatedImages.length > 0) {
-    return response.generatedImages[0].image.imageBytes;
+    if (response.generatedImages && response.generatedImages.length > 0) {
+      return response.generatedImages[0].image.imageBytes;
+    }
+  } else if (model === 'gemini-2.5-flash-image') {
+    const response = await retryWithBackoff(async () => {
+      return await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: prompt }],
+        },
+        config: {
+          responseModalities: [Modality.IMAGE],
+        },
+      });
+    });
+    
+    for (const part of response.candidates?.[0]?.content?.parts ?? []) {
+      if (part.inlineData) {
+        return part.inlineData.data;
+      }
+    }
   }
   
   throw new Error("Image generation failed.");
