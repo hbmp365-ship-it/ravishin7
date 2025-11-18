@@ -30,13 +30,46 @@ interface ImagePromptProps {
   status: ImageStatus;
 }
 
+// HTTP 환경에서도 동작하는 복사 함수
+const copyToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    // 먼저 Clipboard API 시도
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) {
+    console.log('Clipboard API 실패, fallback 사용:', err);
+  }
+
+  // Fallback: execCommand 사용
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    return successful;
+  } catch (err) {
+    console.error('복사 실패:', err);
+    return false;
+  }
+};
+
 const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToImageTab, status }) => {
   const [copied, setCopied] = useState(false);
   
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
   
   if (status.isLoading) {
@@ -117,10 +150,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     return /\[Card\s*\d+\]/.test(content);
   }, [content]);
 
-  const handleCopyAll = () => {
-    navigator.clipboard.writeText(content);
-    setCopiedAll(true);
-    setTimeout(() => setCopiedAll(false), 2000);
+  const handleCopyAll = async () => {
+    const success = await copyToClipboard(content);
+    if (success) {
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
+    }
   };
   
   const handleGenerateSingleImage = useCallback(async (prompt: string) => {
@@ -227,7 +262,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     });
   }, [generatedImageUrls, imageStatuses]);
   
-  const handleCopyToClipboardForSpreadsheet = useCallback(() => {
+  const handleCopyToClipboardForSpreadsheet = useCallback(async () => {
     if (!content) return;
 
     interface CardData {
@@ -322,9 +357,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     
     const tsvContent = dataRow.map(escapeTsvField).join('\t');
 
-    navigator.clipboard.writeText(tsvContent);
-    setIsCsvCopied(true);
-    setTimeout(() => setIsCsvCopied(false), 2000);
+    const success = await copyToClipboard(tsvContent);
+    if (success) {
+      setIsCsvCopied(true);
+      setTimeout(() => setIsCsvCopied(false), 2000);
+    }
 }, [content, imageStatuses, category]);
 
 
