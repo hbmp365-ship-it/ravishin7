@@ -93,6 +93,7 @@ const App: React.FC = () => {
               onSwitchToImageTab={handleSwitchToImageTab}
               onSuggestionClick={handleSuggestionClick}
               category={lastUserInput?.category}
+              format={lastUserInput?.format}
             />
           </div>
         </div>

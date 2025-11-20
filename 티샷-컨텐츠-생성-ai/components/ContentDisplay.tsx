@@ -13,6 +13,7 @@ interface ContentDisplayProps {
   onSwitchToImageTab: (prompt: string) => void;
   onSuggestionClick: (suggestion: string) => void;
   category?: string;
+  format?: string;
 }
 
 // FIX: Define a specific type for image status to help with type inference.
@@ -126,7 +127,7 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
 };
 
 
-export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggestions, sources, isLoading, error, onSwitchToImageTab, onSuggestionClick, category }) => {
+export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggestions, sources, isLoading, error, onSwitchToImageTab, onSuggestionClick, category, format }) => {
   const [copiedAll, setCopiedAll] = useState(false);
   const [isCsvCopied, setIsCsvCopied] = useState(false);
   const [imageStatuses, setImageStatuses] = useState<Record<string, ImageStatus>>({});
@@ -149,6 +150,15 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     if (!content) return false;
     return /\[Card\s*\d+\]/.test(content);
   }, [content]);
+
+  const isNaverBlogFormat = useMemo(() => {
+    if (!content) return false;
+    return /\[섹션\s*\d+\s*제목\]/.test(content) || /✍️ 인트로/.test(content);
+  }, [content]);
+
+  const showSpreadsheetButton = useMemo(() => {
+    return isInstagramCardFormat || isNaverBlogFormat;
+  }, [isInstagramCardFormat, isNaverBlogFormat]);
 
   const handleCopyAll = async () => {
     const success = await copyToClipboard(content);
@@ -272,60 +282,61 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       source: string;
     }
 
-    // 제목을 30글자 이내로 제한하고, 10글자마다 줄바꿈하되 단어가 분리되지 않도록 처리하는 함수
-    const formatTitleWithLineBreaks = (text: string, maxCharsPerLine: number = 10, maxTotalChars: number = 30): string => {
+    interface BlogSectionData {
+      title: string;
+      body: string;
+      prompt: string;
+    }
+
+    // 제목을 25글자 이내로 제한하고, 8~10글자마다 줄바꿈하되 자연스럽게 처리하는 함수
+    const formatTitleWithLineBreaks = (text: string, maxCharsPerLine: number = 10, maxTotalChars: number = 25): string => {
       if (!text) return '';
       
-      // 30글자를 초과하면 잘라내기
-      let trimmedText = text;
-      if (text.length > maxTotalChars) {
-        // 단어 단위로 자르기 위해 공백 기준으로 분리
-        const words = text.split(' ');
-        let result = '';
-        for (const word of words) {
-          const testResult = result ? `${result} ${word}` : word;
-          if (testResult.length <= maxTotalChars) {
-            result = testResult;
-          } else {
-            break;
-          }
-        }
-        trimmedText = result || text.substring(0, maxTotalChars);
+      // 25글자를 초과하면 잘라내기 (공백 제외)
+      let trimmedText = text.trim();
+      if (trimmedText.length > maxTotalChars) {
+        trimmedText = trimmedText.substring(0, maxTotalChars).trim();
       }
       
-      const words = trimmedText.split(' ');
+      // 줄바꿈 처리: 8~10글자마다 띄어쓰기 위치에서 줄바꿈
       const lines: string[] = [];
       let currentLine = '';
+      let charCount = 0;
 
-      for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
+      for (let i = 0; i < trimmedText.length; i++) {
+        const char = trimmedText[i];
+        currentLine += char;
+        charCount++;
         
-        if (testLine.length <= maxCharsPerLine) {
-          currentLine = testLine;
-        } else {
-          if (currentLine) {
-            lines.push(currentLine);
-            currentLine = word;
-          } else {
-            // 단어 자체가 10글자를 초과하는 경우
-            // 10글자씩 강제로 자르지 않고 그대로 한 줄에 추가 (단어 보존)
-            lines.push(word);
-            currentLine = '';
+        // 8글자 이상이고, 현재 문자가 공백이거나 다음 문자가 공백인 경우
+        if (charCount >= 8 && (char === ' ' || (i < trimmedText.length - 1 && trimmedText[i + 1] === ' '))) {
+          lines.push(currentLine.trim());
+          currentLine = '';
+          charCount = 0;
+          // 다음 문자가 공백이면 스킵
+          if (i < trimmedText.length - 1 && trimmedText[i + 1] === ' ') {
+            i++;
           }
         }
+        // 10글자를 초과하면 강제로 줄바꿈 (띄어쓰기가 없는 경우)
+        else if (charCount >= maxCharsPerLine) {
+          lines.push(currentLine.trim());
+          currentLine = '';
+          charCount = 0;
+        }
         
-        // 최대 3줄까지만 허용
+        // 최대 3줄까지만
         if (lines.length >= 3) {
           break;
         }
       }
 
-      // 마지막 줄 추가 (3줄 미만인 경우만)
-      if (currentLine && lines.length < 3) {
-        lines.push(currentLine);
+      // 남은 텍스트 추가
+      if (currentLine.trim() && lines.length < 3) {
+        lines.push(currentLine.trim());
       }
 
-      return lines.slice(0, 3).join('\n');
+      return lines.join('\n');
     };
 
     let title = '';
@@ -437,8 +448,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         return s3Url || '';
     };
 
-    // 제목을 10글자 단위로 줄바꿈 처리
-    const formattedTitle = formatTitleWithLineBreaks(title, 10);
+    // 제목을 8~10글자 단위로 줄바꿈 처리 (최대 25자)
+    const formattedTitle = formatTitleWithLineBreaks(title, 10, 25);
 
     const dataRow: string[] = [
         formattedTitle,
@@ -502,14 +513,158 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       return field;
     };
     
-    const tsvContent = dataRow.map(escapeTsvField).join('\t');
+    let tsvContent = '';
+
+    // 네이버 블로그 포맷 처리
+    if (format === 'NAVER-BLOG/BAND') {
+      let blogTitle = '';
+      let intro = '';
+      const sections: BlogSectionData[] = [];
+      let conclusion = '';
+      let references = '';
+      
+      const blogLines = content.split('\n');
+      let currentSection: BlogSectionData | null = null;
+      let currentBodyParts: string[] = [];
+      let isInIntro = false;
+      let isInSection = false;
+      let isInConclusion = false;
+      let isInReferences = false;
+      let isParsingBlogTitle = false;
+      let blogTitleParts: string[] = [];
+      
+      const pushSection = () => {
+        if (currentSection) {
+          currentSection.body = currentBodyParts.join('\n').trim();
+          sections.push(currentSection);
+          currentSection = null;
+          currentBodyParts = [];
+        }
+      };
+      
+      blogLines.forEach(line => {
+        if (line.startsWith('제목:')) {
+          isParsingBlogTitle = true;
+          const titleContent = line.replace(/^제목(\(.*\))?:\s*/, '').trim();
+          if (titleContent) {
+            blogTitleParts.push(titleContent);
+          }
+        } else if (isParsingBlogTitle && (line.startsWith('✍️ 인트로') || line.startsWith('📚 본문') || line.startsWith('[섹션'))) {
+          isParsingBlogTitle = false;
+          blogTitle = blogTitleParts.join(' ').trim();
+          blogTitleParts = [];
+          
+          if (line.startsWith('✍️ 인트로')) {
+            isInIntro = true;
+            isInSection = false;
+            isInConclusion = false;
+            isInReferences = false;
+          } else if (line.startsWith('[섹션')) {
+            pushSection();
+            const sectionTitle = line.replace(/^\[섹션\s+\d+\s+제목\]\s*/, '').trim();
+            currentSection = { title: sectionTitle, body: '', prompt: '' };
+            isInIntro = false;
+            isInSection = true;
+            isInConclusion = false;
+            isInReferences = false;
+          }
+        } else if (isParsingBlogTitle && line.trim() && !line.startsWith('#')) {
+          blogTitleParts.push(line.trim());
+        } else if (line.startsWith('✍️ 인트로')) {
+          isInIntro = true;
+          isInSection = false;
+          isInConclusion = false;
+          isInReferences = false;
+        } else if (line.startsWith('📚 본문')) {
+          isInIntro = false;
+          isInSection = false;
+          isInConclusion = false;
+          isInReferences = false;
+        } else if (line.startsWith('[섹션')) {
+          pushSection();
+          const sectionTitle = line.replace(/^\[섹션\s+\d+\s+제목\]\s*/, '').trim();
+          currentSection = { title: sectionTitle, body: '', prompt: '' };
+          isInIntro = false;
+          isInSection = true;
+          isInConclusion = false;
+          isInReferences = false;
+        } else if (line.startsWith('✅ 마무리 & CTA')) {
+          pushSection();
+          isInIntro = false;
+          isInSection = false;
+          isInConclusion = true;
+          isInReferences = false;
+        } else if (line.startsWith('🔎 참고자료')) {
+          pushSection();
+          isInIntro = false;
+          isInSection = false;
+          isInConclusion = false;
+          isInReferences = true;
+        } else if (line.startsWith('📸 이미지 프롬프트:')) {
+          if (currentSection) {
+            currentSection.prompt = line.replace('📸 이미지 프롬프트:', '').trim();
+          }
+        } else if (line.startsWith('후속 제안:')) {
+          // End all parsing
+          pushSection();
+          isInIntro = false;
+          isInSection = false;
+          isInConclusion = false;
+          isInReferences = false;
+        } else if (line.trim()) {
+          if (isInIntro) {
+            intro += (intro ? '\n' : '') + line.trim();
+          } else if (isInSection && currentSection) {
+            currentBodyParts.push(line.trim());
+          } else if (isInConclusion) {
+            conclusion += (conclusion ? '\n' : '') + line.trim();
+          } else if (isInReferences) {
+            references += (references ? '\n' : '') + line.trim();
+          }
+        }
+      });
+      
+      if (blogTitleParts.length > 0) {
+        blogTitle = blogTitleParts.join(' ').trim();
+      }
+      pushSection();
+      
+      // 모든 이미지 프롬프트에서 S3 URL 수집 (content에서 직접 추출)
+      const allImageUrls: string[] = [];
+      const imagePromptLines = content.split('\n').filter(line => line.startsWith('📸 이미지 프롬프트:'));
+      
+      imagePromptLines.forEach(line => {
+        const prompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
+        if (prompt) {
+          const s3Url = imageStatuses[prompt]?.s3Url;
+          if (s3Url) {
+            allImageUrls.push(s3Url);
+          }
+        }
+      });
+      
+      // [카테고리]-[컨텐츠제목]-[인트로]-[컨텐츠전체내용]-[참고자료및출처]-[이미지1]-[이미지2]-[이미지3]...
+      const blogDataRow: string[] = [
+        category || '',                      // 1. 카테고리
+        blogTitle,                           // 2. 컨텐츠 제목
+        intro,                               // 3. 인트로
+        content,                             // 4. 컨텐츠 전체 내용
+        references,                          // 5. 참고자료 및 출처
+        ...allImageUrls                      // 6~N. 생성된 이미지 주소들 (개별 열)
+      ];
+      
+      tsvContent = blogDataRow.map(escapeTsvField).join('\t');
+    } else {
+      // 기존 인스타 카드 포맷 처리
+      tsvContent = dataRow.map(escapeTsvField).join('\t');
+    }
 
     const success = await copyToClipboard(tsvContent);
     if (success) {
       setIsCsvCopied(true);
       setTimeout(() => setIsCsvCopied(false), 2000);
     }
-}, [content, imageStatuses, category, sources]);
+}, [content, imageStatuses, category, sources, format]);
 
 
   const renderedContent = useMemo(() => {
@@ -729,7 +884,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
       {content && !isLoading && (
         <div className="self-end mb-4 flex flex-wrap gap-2 justify-end">
-             {isInstagramCardFormat && (
+             {showSpreadsheetButton && (
                 <button 
                     onClick={handleCopyToClipboardForSpreadsheet} 
                     className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors"

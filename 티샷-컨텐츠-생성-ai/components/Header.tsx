@@ -20,7 +20,7 @@ export const Header: React.FC = () => {
           
           <div className="flex items-center space-x-2">
             <a
-              href="https://www.instagram.com/teeshot24/"
+              href="https://www.instagram.com/teeshot_official/"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 text-white hover:shadow-lg transition-all duration-200 hover:scale-105"
@@ -40,7 +40,7 @@ export const Header: React.FC = () => {
             </a>
             
             <a
-              href="https://www.youtube.com/@골프친구티샷"
+              href="https://www.youtube.com/@%ED%8B%B0%EC%83%B7%EC%88%8F%EC%B8%A0"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-[#FF0000] text-white hover:bg-[#CC0000] hover:shadow-lg transition-all duration-200 hover:scale-105"
