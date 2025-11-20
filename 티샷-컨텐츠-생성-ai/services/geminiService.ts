@@ -22,11 +22,10 @@ const formatUserInput = (input: UserInput): string => {
     userPrompt += `card_count: ${input.cardCount}\n`;
   }
   if (input.format === 'NAVER-BLOG/BAND' || input.format === 'ETC-BANNER') {
-    userPrompt += `text_length_level: ${input.blogLength}\n`;
+    userPrompt += `text_length: ${input.blogLength}\n`;
   }
   if (input.format === 'YOUTUBE-SHORTFORM') {
-    userPrompt += `video_length_level: ${input.videoLength}\n`;
-    userPrompt += `scene_count: ${input.sceneCount}\n`;
+    userPrompt += `video_length: ${input.videoLength}\n`;
   }
   if (input.tone) {
     userPrompt += `톤앤매너: ${input.tone}\n`;

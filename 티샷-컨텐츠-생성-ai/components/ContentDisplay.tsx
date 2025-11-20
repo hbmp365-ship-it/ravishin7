@@ -272,6 +272,62 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       source: string;
     }
 
+    // 제목을 30글자 이내로 제한하고, 10글자마다 줄바꿈하되 단어가 분리되지 않도록 처리하는 함수
+    const formatTitleWithLineBreaks = (text: string, maxCharsPerLine: number = 10, maxTotalChars: number = 30): string => {
+      if (!text) return '';
+      
+      // 30글자를 초과하면 잘라내기
+      let trimmedText = text;
+      if (text.length > maxTotalChars) {
+        // 단어 단위로 자르기 위해 공백 기준으로 분리
+        const words = text.split(' ');
+        let result = '';
+        for (const word of words) {
+          const testResult = result ? `${result} ${word}` : word;
+          if (testResult.length <= maxTotalChars) {
+            result = testResult;
+          } else {
+            break;
+          }
+        }
+        trimmedText = result || text.substring(0, maxTotalChars);
+      }
+      
+      const words = trimmedText.split(' ');
+      const lines: string[] = [];
+      let currentLine = '';
+
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        
+        if (testLine.length <= maxCharsPerLine) {
+          currentLine = testLine;
+        } else {
+          if (currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            // 단어 자체가 10글자를 초과하는 경우
+            // 10글자씩 강제로 자르지 않고 그대로 한 줄에 추가 (단어 보존)
+            lines.push(word);
+            currentLine = '';
+          }
+        }
+        
+        // 최대 3줄까지만 허용
+        if (lines.length >= 3) {
+          break;
+        }
+      }
+
+      // 마지막 줄 추가 (3줄 미만인 경우만)
+      if (currentLine && lines.length < 3) {
+        lines.push(currentLine);
+      }
+
+      return lines.slice(0, 3).join('\n');
+    };
+
     let title = '';
     let coverPrompt = '';
     const cards: CardData[] = [];
@@ -285,6 +341,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     let isBeforeCards = true;
     let isParsingPostingText = false;
     let postingTextParts: string[] = [];
+    let isParsingTitle = false;
+    let titleParts: string[] = [];
 
     const pushCard = () => {
         if (currentCard) {
@@ -298,6 +356,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     lines.forEach(line => {
         if (line.startsWith('✍️ 포스팅 글')) {
             isParsingPostingText = true;
+            isParsingTitle = false;
+            if (titleParts.length > 0) {
+                title = titleParts.join(' ').trim();
+                titleParts = [];
+            }
             pushCard(); 
             return; 
         }
@@ -312,7 +375,30 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         }
 
         if (line.startsWith('제목:')) {
-            title = line.replace('제목:', '').trim();
+            isParsingTitle = true;
+            const titleContent = line.replace(/^제목(\(.*\))?:\s*/, '').trim();
+            if (titleContent) {
+                titleParts.push(titleContent);
+            }
+        } else if (isParsingTitle && (line.startsWith('핵심 메시지') || line.startsWith('카드 수') || line.startsWith('📸 이미지 프롬프트:') || line.startsWith('[Card'))) {
+            // 제목 파싱 종료
+            isParsingTitle = false;
+            title = titleParts.join(' ').trim();
+            titleParts = [];
+            
+            // 현재 줄 처리 계속
+            if (line.startsWith('📸 이미지 프롬프트:')) {
+                if (isBeforeCards) {
+                    coverPrompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
+                }
+            } else if (line.startsWith('[Card')) {
+                isBeforeCards = false;
+                pushCard();
+                currentCard = { subtitle: '', body: '', prompt: '', source: '' };
+            }
+        } else if (isParsingTitle && line.trim() && !line.startsWith('#')) {
+            // 제목의 추가 줄
+            titleParts.push(line.trim());
         } else if (isBeforeCards && line.startsWith('📸 이미지 프롬프트:')) {
             coverPrompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
         } else if (line.startsWith('[Card')) {
@@ -335,6 +421,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
             currentBodyParts.push(line.trim());
         }
     });
+    
+    // 마지막에 제목이 완료되지 않은 경우 처리
+    if (titleParts.length > 0) {
+        title = titleParts.join(' ').trim();
+    }
+    
     pushCard();
     postingText = postingTextParts.join('\n').trim();
 
@@ -345,8 +437,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         return s3Url || '';
     };
 
+    // 제목을 10글자 단위로 줄바꿈 처리
+    const formattedTitle = formatTitleWithLineBreaks(title, 10);
+
     const dataRow: string[] = [
-        title,
+        formattedTitle,
         category || '',
         hashtags[0] || '',
         hashtags[1] || '',
@@ -426,6 +521,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     let inCard = false;
     let inPostingSection = false;
     let postingContent: React.ReactNode[] = [];
+    let inTitle = false;
+    let titleLines: string[] = [];
+    let titleStartIndex = 0;
 
     const pushCard = () => {
       if (currentCard.length > 0) {
@@ -435,6 +533,20 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
           </div>
         );
         currentCard = [];
+      }
+    };
+
+    const pushTitle = () => {
+      if (titleLines.length > 0) {
+        const titleContent = titleLines.join('\n');
+        elements.push(
+          <div key={`title-${titleStartIndex}`} className="mb-3 mt-4">
+            <span className="text-sm font-medium text-gray-500">제목</span>
+            <h2 className="text-3xl font-extrabold text-gray-900 leading-tight whitespace-pre-wrap">{titleContent}</h2>
+          </div>
+        );
+        titleLines = [];
+        inTitle = false;
       }
     };
 
@@ -499,21 +611,31 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       
       if (line.match(/^제목(\(.*\))?:/)) {
         pushCard();
+        pushTitle();
         inCard = false;
-        elements.push(<h2 key={key} className="text-2xl font-bold text-gray-900 mb-2 mt-4">{line}</h2>);
+        inTitle = true;
+        titleStartIndex = index;
+        const titleContent = line.replace(/^제목(\(.*\))?:\s*/, '').trim();
+        if (titleContent) {
+          titleLines.push(titleContent);
+        }
       } else if (line.startsWith('핵심 메시지') || line.startsWith('카드 수')) {
+        pushTitle();
         pushCard();
         inCard = false;
         elements.push(<p key={key} className="text-gray-600 mb-4">{line}</p>);
       } else if (line.startsWith('[Card') || line.startsWith('[Scene')) {
+        pushTitle();
         pushCard();
         inCard = true;
         const title = line.replace(/\[|\]/g, '');
         currentCard.push(<h3 key={key} className="text-lg font-semibold text-[#1FA77A] mb-2">{title}</h3>);
       } else if (line.startsWith('💡 소제목:')) {
+        pushTitle();
         const subtitle = line.replace('💡 소제목:', '').trim();
         (inCard ? currentCard : elements).push(<p key={key} className="font-bold text-gray-800">{`💡 ${subtitle}`}</p>);
       } else if (line.startsWith('📸 이미지 프롬프트:')) {
+        pushTitle();
         const prompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
         const status = imageStatuses[prompt] || { url: null, s3Url: null, isLoading: false, error: null };
         (inCard ? currentCard : elements).push(
@@ -525,36 +647,86 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                 status={status} 
             />);
       } else if (line.startsWith('#')) {
+        pushTitle();
         pushCard();
         inCard = false;
         elements.push(<p key={key} className="text-[#1FA77A] mt-4">{line}</p>);
       } else if (line.startsWith('후속 제안')) {
+          pushTitle();
           return;
       } else if (line.startsWith('[섹션')) {
+        pushTitle();
         pushCard();
         inCard = false;
-        elements.push(<h3 key={key} className="text-xl font-semibold text-gray-900 mt-6 mb-2">{line.replace(/\[|\]/g, '')}</h3>);
-      } else if (line.startsWith('✍️') || line.startsWith('📚') || line.startsWith('✅') || line.startsWith('🔎') || line.startsWith('🎬')) {
+        const sectionTitle = line.replace(/\[|\]/g, '');
+        elements.push(
+          <div key={key} className="mt-8 mb-4">
+            <h3 className="text-xl font-extrabold text-gray-900 border-l-4 border-[#1FA77A] pl-4 py-2 bg-gradient-to-r from-gray-50 to-white">{sectionTitle}</h3>
+          </div>
+        );
+      } else if (line.startsWith('✍️ 인트로')) {
+        pushTitle();
         pushCard();
         inCard = false;
-         // For card format, render '출처' inside the card
-        if (inCard && line.startsWith('🔎')) {
-            currentCard.push(<p key={key} className="text-xs text-gray-500 mt-2">{line}</p>)
-        } else {
-            elements.push(<h3 key={key} className="text-xl font-semibold text-[#1FA77A] mt-6 mb-2">{line}</h3>);
-        }
+        elements.push(
+          <div key={key} className="mt-6 mb-3 pt-4 border-t border-gray-200">
+            <h3 className="text-xl font-bold text-[#1FA77A] mb-3">{line}</h3>
+          </div>
+        );
+      } else if (line.startsWith('📚 본문')) {
+        pushTitle();
+        pushCard();
+        inCard = false;
+        elements.push(
+          <div key={key} className="mt-8 mb-4 pt-4 border-t-2 border-[#1FA77A]">
+            <h3 className="text-2xl font-bold text-gray-900 mb-4">{line}</h3>
+          </div>
+        );
+      } else if (line.startsWith('✅')) {
+        pushTitle();
+        pushCard();
+        inCard = false;
+        elements.push(
+          <div key={key} className="mt-8 mb-3 pt-4 border-t border-gray-200">
+            <h3 className="text-xl font-bold text-[#1FA77A] mb-3">{line}</h3>
+          </div>
+        );
+      } else if (line.startsWith('🔎 참고자료')) {
+        pushTitle();
+        pushCard();
+        inCard = false;
+        elements.push(
+          <div key={key} className="mt-6 mb-2 pt-3 border-t border-gray-300">
+            <h4 className="text-base font-semibold text-gray-600 mb-2">{line}</h4>
+          </div>
+        );
+      } else if (line.startsWith('🎬')) {
+        pushTitle();
+        pushCard();
+        inCard = false;
+        elements.push(<h3 key={key} className="text-xl font-semibold text-[#1FA77A] mt-6 mb-2">{line}</h3>);
       } else if (line.trim()) {
-        (inCard ? currentCard : elements).push(<p key={key} className="text-gray-700 whitespace-pre-wrap">{line}</p>);
+        if (inTitle) {
+          // 제목이 여러 줄로 계속되는 경우
+          titleLines.push(line.trim());
+        } else {
+          // 일반 본문 텍스트 - 줄 간격 및 패딩 추가
+          const paragraphClass = inCard 
+            ? "text-gray-700 whitespace-pre-wrap leading-relaxed mb-3"
+            : "text-base text-gray-700 whitespace-pre-wrap leading-loose mb-4 pl-1";
+          (inCard ? currentCard : elements).push(<p key={key} className={paragraphClass}>{line}</p>);
+        }
       }
     });
 
+    pushTitle();
     pushCard();
     pushPostingSection();
     return elements;
   }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage]);
 
   return (
-    <div className="bg-white p-6 rounded-b-xl rounded-r-xl shadow-lg border border-t-0 border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
+    <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
       {content && !isLoading && (
         <div className="self-end mb-4 flex flex-wrap gap-2 justify-end">
              {isInstagramCardFormat && (
@@ -589,20 +761,20 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       )}
       <div className="flex-grow">
         {isLoading && (
-          <div className="flex flex-col items-center justify-center h-full">
-            <svg className="animate-spin h-10 w-10 text-[#1FA77A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <div className="flex flex-col items-center justify-center h-full min-h-[calc(100vh-20rem)]">
+            <svg className="animate-spin h-12 w-12 text-[#1FA77A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p className="mt-4 text-gray-600">AI가 열심히 콘텐츠를 만들고 있습니다...</p>
+            <p className="mt-6 text-lg font-medium text-gray-700">AI가 열심히 콘텐츠를 만들고 있습니다...</p>
           </div>
         )}
         {error && <div className="text-red-600 text-center">{error}</div>}
         {!isLoading && !error && !content && (
-           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
-             <div className="text-4xl mb-4">⛳️</div>
-            <h3 className="text-lg font-semibold text-gray-800">TeeShot 콘텐츠 생성기</h3>
-            <p className="max-w-md mt-1">왼쪽 양식을 작성하고 '콘텐츠 생성하기'를 클릭하여 골프 관련 소셜 미디어 콘텐츠를 만들어보세요.</p>
+           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 min-h-[calc(100vh-20rem)]">
+             <div className="text-6xl mb-6">⛳️</div>
+            <h3 className="text-2xl font-bold text-gray-800 mb-3">TeeShot 콘텐츠 생성기</h3>
+            <p className="max-w-md text-base text-gray-600 leading-relaxed">왼쪽 양식을 작성하고 '콘텐츠 생성하기'를 클릭하여<br/>골프 관련 소셜 미디어 콘텐츠를 만들어보세요.</p>
           </div>
         )}
         {!isLoading && content && (
