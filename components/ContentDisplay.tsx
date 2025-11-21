@@ -14,6 +14,7 @@ interface ContentDisplayProps {
   onSuggestionClick: (suggestion: string) => void;
   category?: string;
   format?: string;
+  keyword?: string;
 }
 
 // FIX: Define a specific type for image status to help with type inference.
@@ -127,7 +128,7 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
 };
 
 
-export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggestions, sources, isLoading, error, onSwitchToImageTab, onSuggestionClick, category, format }) => {
+export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggestions, sources, isLoading, error, onSwitchToImageTab, onSuggestionClick, category, format, keyword }) => {
   const [copiedAll, setCopiedAll] = useState(false);
   const [isCsvCopied, setIsCsvCopied] = useState(false);
   const [imageStatuses, setImageStatuses] = useState<Record<string, ImageStatus>>({});
@@ -275,6 +276,13 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
   const handleCopyToClipboardForSpreadsheet = useCallback(async () => {
     if (!content) return;
 
+    // JSON 블록과 불필요한 메타데이터 제거
+    let cleanedContent = content;
+    cleanedContent = cleanedContent.replace(/```json[\s\S]*?```/g, '');
+    cleanedContent = cleanedContent.replace(/^[A-D]\)\s+(INSTAGRAM-CARD|NAVER-BLOG\/BAND|YOUTUBE-SHORTFORM|ETC-BANNER):\s*/gm, '');
+    cleanedContent = cleanedContent.replace(/^\{[\s\S]*?"생성요청"[\s\S]*?\}/gm, '');
+    cleanedContent = cleanedContent.trim();
+
     interface CardData {
       subtitle: string;
       body: string;
@@ -288,11 +296,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       prompt: string;
     }
 
-    // 제목을 25글자 이내로 제한하고, 8~10글자마다 줄바꿈하되 자연스럽게 처리하는 함수
-    const formatTitleWithLineBreaks = (text: string, maxCharsPerLine: number = 10, maxTotalChars: number = 25): string => {
+    // 제목을 30글자 이내로 제한하고, 8~10글자마다 줄바꿈하되 자연스럽게 처리하는 함수
+    const formatTitleWithLineBreaks = (text: string, maxCharsPerLine: number = 10, maxTotalChars: number = 30): string => {
       if (!text) return '';
       
-      // 25글자를 초과하면 잘라내기 (공백 제외)
+      // 30글자를 초과하면 잘라내기 (공백 제외)
       let trimmedText = text.trim();
       if (trimmedText.length > maxTotalChars) {
         trimmedText = trimmedText.substring(0, maxTotalChars).trim();
@@ -345,8 +353,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     let hashtags: string[] = [];
     let postingText = '';
     let sourcesText = '';
+    let keywords = '';
 
-    const lines = content.split('\n');
+    const lines = cleanedContent.split('\n');
     let currentCard: CardData | null = null;
     let currentBodyParts: string[] = [];
     let isBeforeCards = true;
@@ -377,11 +386,21 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         }
         
         if (isParsingPostingText) {
-             if (line.startsWith('후속 제안:') || line.startsWith('🔎 참고자료')) {
+             if (line.startsWith('후속 제안:') || line.startsWith('🔎 참고자료') || line.startsWith('🔑 핵심키워드:') || line.startsWith('🔑')) {
                 isParsingPostingText = false;
+                // 키워드 추출
+                if (line.startsWith('🔑 핵심키워드:') || line.startsWith('🔑')) {
+                    keywords = line.replace('🔑 핵심키워드:', '').replace('🔑', '').trim();
+                }
             } else {
                 postingTextParts.push(line);
             }
+            return;
+        }
+        
+        // 키워드 추출 (포스팅 글 밖에서도)
+        if (line.startsWith('🔑 핵심키워드:') || line.startsWith('🔑')) {
+            keywords = line.replace('🔑 핵심키워드:', '').replace('🔑', '').trim();
             return;
         }
 
@@ -448,8 +467,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         return s3Url || '';
     };
 
-    // 제목을 8~10글자 단위로 줄바꿈 처리 (최대 25자)
-    const formattedTitle = formatTitleWithLineBreaks(title, 10, 25);
+    // 제목을 8~10글자 단위로 줄바꿈 처리 (최대 30자)
+    const formattedTitle = formatTitleWithLineBreaks(title, 10, 30);
 
     const dataRow: string[] = [
         formattedTitle,
@@ -493,6 +512,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     if (padding > 0) dataRow.push(...Array(padding).fill(''));
     dataRow.push(postingText);
 
+    // Column 59 (index 58) for keywords
+    dataRow.push(keywords);
+
     // Column 60 (index 59) for sourceInfo
     const sourceInfoColIndex = 59;
     padding = sourceInfoColIndex - dataRow.length;
@@ -523,7 +545,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       let conclusion = '';
       let references = '';
       
-      const blogLines = content.split('\n');
+      const blogLines = cleanedContent.split('\n');
       let currentSection: BlogSectionData | null = null;
       let currentBodyParts: string[] = [];
       let isInIntro = false;
@@ -629,9 +651,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       }
       pushSection();
       
-      // 모든 이미지 프롬프트에서 S3 URL 수집 (content에서 직접 추출)
+      // 모든 이미지 프롬프트에서 S3 URL 수집 (cleanedContent에서 직접 추출)
       const allImageUrls: string[] = [];
-      const imagePromptLines = content.split('\n').filter(line => line.startsWith('📸 이미지 프롬프트:'));
+      const imagePromptLines = cleanedContent.split('\n').filter(line => line.startsWith('📸 이미지 프롬프트:'));
       
       imagePromptLines.forEach(line => {
         const prompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
@@ -670,7 +692,22 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
   const renderedContent = useMemo(() => {
     if (!content) return null;
   
-    const lines = content.split('\n');
+    // JSON 블록과 불필요한 메타데이터 제거
+    let cleanedContent = content;
+    
+    // 1. JSON 코드블록 제거 (```json ... ```)
+    cleanedContent = cleanedContent.replace(/```json[\s\S]*?```/g, '');
+    
+    // 2. 포맷 레이블 제거 (A) INSTAGRAM-CARD:, B) NAVER-BLOG: 등)
+    cleanedContent = cleanedContent.replace(/^[A-D]\)\s+(INSTAGRAM-CARD|NAVER-BLOG\/BAND|YOUTUBE-SHORTFORM|ETC-BANNER):\s*/gm, '');
+    
+    // 3. 단독으로 나타나는 JSON 객체 제거
+    cleanedContent = cleanedContent.replace(/^\{[\s\S]*?"생성요청"[\s\S]*?\}/gm, '');
+    
+    // 4. 앞뒤 공백 정리
+    cleanedContent = cleanedContent.trim();
+    
+    const lines = cleanedContent.split('\n');
     const elements: React.ReactNode[] = [];
     let currentCard: React.ReactNode[] = [];
     let inCard = false;
@@ -694,10 +731,35 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     const pushTitle = () => {
       if (titleLines.length > 0) {
         const titleContent = titleLines.join('\n');
+        
+        // 네이버 블로그 포맷이고 키워드가 있으면 키워드를 강조
+        let titleElement;
+        if (isNaverBlogFormat && keyword) {
+          // 키워드를 찾아서 강조 표시
+          const keywordRegex = new RegExp(`(${keyword})`, 'gi');
+          const parts = titleContent.split(keywordRegex);
+          
+          titleElement = (
+            <h2 className="text-3xl font-extrabold text-gray-900 leading-tight whitespace-pre-wrap">
+              {parts.map((part, index) => 
+                part.toLowerCase() === keyword.toLowerCase() ? (
+                  <span key={index} className="text-[#1FA77A]">{part}</span>
+                ) : (
+                  <React.Fragment key={index}>{part}</React.Fragment>
+                )
+              )}
+            </h2>
+          );
+        } else {
+          titleElement = (
+            <h2 className="text-3xl font-extrabold text-gray-900 leading-tight whitespace-pre-wrap">{titleContent}</h2>
+          );
+        }
+        
         elements.push(
           <div key={`title-${titleStartIndex}`} className="mb-3 mt-4">
             <span className="text-sm font-medium text-gray-500">제목</span>
-            <h2 className="text-3xl font-extrabold text-gray-900 leading-tight whitespace-pre-wrap">{titleContent}</h2>
+            {titleElement}
           </div>
         );
         titleLines = [];
@@ -732,12 +794,26 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       }
       
       // 포스팅 글 섹션 종료 조건
-      if (inPostingSection && (line.startsWith('후속 제안') || line.startsWith('🔎 참고자료') || line.startsWith('🔎 참고'))) {
+      if (inPostingSection && (line.startsWith('후속 제안') || line.startsWith('🔎 참고자료') || line.startsWith('🔎 참고') || line.startsWith('🔑 핵심키워드') || line.startsWith('🔑'))) {
         pushPostingSection();
         inPostingSection = false;
         if (line.startsWith('후속 제안')) {
           return;
         }
+      }
+      
+      // 핵심키워드 처리
+      if (line.startsWith('🔑 핵심키워드:') || line.startsWith('🔑')) {
+        pushCard();
+        pushPostingSection();
+        inCard = false;
+        inPostingSection = false;
+        elements.push(
+          <div key={key} className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="font-bold text-gray-800">{line}</p>
+          </div>
+        );
+        return;
       }
       
       // 포스팅 글 내용 처리

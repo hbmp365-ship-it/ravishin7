@@ -37,11 +37,11 @@ const App: React.FC = () => {
       const errorMessage = e?.error?.message || e?.message || '';
       
       if (errorCode === 503) {
-        setError('서버가 일시적으로 과부하 상태입니다. gemini-2.5-pro → gemini-1.5-pro → gemini-1.5-flash 순서로 자동으로 다른 모델을 시도 중입니다. 잠시만 기다려주세요.');
+        setError('서버가 일시적으로 과부하 상태입니다. 다른 모델로 자동 재시도 중입니다.');
       } else if (errorCode === 401 || errorCode === 403) {
         setError('API 키가 유효하지 않거나 권한이 없습니다. .env 파일의 GEMINI_API_KEY를 확인해주세요.');
       } else if (errorCode === 429) {
-        setError('요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.');
+        setError('API 요청 한도에 도달했습니다. 30초~1분 후에 다시 시도해주세요.');
       } else if (errorMessage.includes('API_KEY')) {
         setError('API 키가 설정되지 않았습니다. .env 파일에 GEMINI_API_KEY를 설정해주세요.');
       } else {
@@ -94,6 +94,7 @@ const App: React.FC = () => {
               onSuggestionClick={handleSuggestionClick}
               category={lastUserInput?.category}
               format={lastUserInput?.format}
+              keyword={lastUserInput?.keyword}
             />
           </div>
         </div>

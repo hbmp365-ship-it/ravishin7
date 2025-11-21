@@ -37,12 +37,11 @@ const formatUserInput = (input: UserInput): string => {
 }
 
 /**
- * 재시도 로직이 포함된 API 호출 헬퍼 함수
- * 503 에러의 경우 더 긴 대기 시간 적용
+ * 재시도 로직 - 503/429 에러 시 재시도
  */
 const retryWithBackoff = async <T>(
   fn: () => Promise<T>,
-  maxRetries: number = 3,
+  maxRetries: number = 2,
   baseDelay: number = 2000
 ): Promise<T> => {
   let lastError: Error | null = null;
@@ -53,7 +52,6 @@ const retryWithBackoff = async <T>(
     } catch (error: any) {
       lastError = error;
       
-      // 503 (서버 과부하) 또는 429 (너무 많은 요청) 에러인 경우에만 재시도
       const statusCode = error?.error?.code || error?.status || error?.statusCode;
       const isRetryable = statusCode === 503 || statusCode === 429;
       
@@ -61,13 +59,13 @@ const retryWithBackoff = async <T>(
         throw error;
       }
       
-      // 503 에러의 경우 더 긴 대기 시간: 5초, 10초, 20초
-      // 429 에러의 경우: 2초, 4초, 8초
-      const is503 = statusCode === 503;
-      const multiplier = is503 ? 5 : 2;
-      const delay = baseDelay * multiplier * Math.pow(2, attempt);
+      // 429 에러: 3초 → 6초 → 12초
+      // 503 에러: 2초 → 4초 → 8초
+      const is429 = statusCode === 429;
+      const multiplier = is429 ? 3 : 2;
+      const delay = baseDelay * multiplier * Math.pow(1.5, attempt);
       
-      console.log(`API 호출 실패 (시도 ${attempt + 1}/${maxRetries + 1}). ${(delay / 1000).toFixed(1)}초 후 재시도...`);
+      console.log(`API 호출 실패 (에러 ${statusCode}). ${(delay / 1000).toFixed(1)}초 후 재시도...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -84,13 +82,13 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
 
   const userRequest = formatUserInput(userInput);
 
+  // Google Search 제거로 API 한도 절약
   const config: any = {
     systemInstruction: SYSTEM_PROMPT,
-    tools: [{googleSearch: {}}],
   };
 
-  // 모델 우선순위: gemini-2.5-pro -> gemini-1.5-pro -> gemini-1.5-flash
-  const models = ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash'];
+  // 빠른 모델 우선 사용, 실패 시 백업 모델로 전환
+  const models = ['gemini-2.0-flash-exp', 'gemini-1.5-flash'];
   let lastError: Error | null = null;
 
   for (const model of models) {
@@ -102,12 +100,10 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
           contents: userRequest,
           config: config
         });
-      }, 2, 2000); // 503 에러 시 2회만 재시도 (각 모델당)
+      }, 1, 2000); // 429/503 에러 시 1회 재시도
       
-      // 성공 시 결과 반환
       const rawText = response.text;
       
-      // response.text가 없는 경우 에러 처리
       if (!rawText) {
         throw new Error(`모델 ${model}에서 응답을 받았지만 텍스트가 없습니다.`);
       }
@@ -142,20 +138,19 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
       lastError = error;
       const statusCode = error?.error?.code || error?.status || error?.statusCode;
       
-      // 503 에러가 아니면 즉시 에러 반환 (다른 모델 시도 불필요)
-      if (statusCode !== 503) {
-        throw error;
+      // 404 (모델 없음) 또는 503 (서버 과부하)인 경우 다음 모델 시도
+      if (statusCode === 404 || statusCode === 503) {
+        console.log(`모델 ${model} 실패 (${statusCode}). 다음 모델로 시도...`);
+        continue;
       }
       
-      // 503 에러인 경우 다음 모델로 시도
-      console.log(`모델 ${model} 실패 (503). 다음 모델로 시도...`);
-      continue;
+      // 다른 에러는 즉시 반환
+      throw error;
     }
   }
   
-  // 모든 모델 실패 시 마지막 에러 throw
-  throw lastError || new Error('모든 모델에서 요청이 실패했습니다. 서버가 과부하 상태입니다. 잠시 후 다시 시도해주세요.');
-
+  // 모든 모델 실패 시
+  throw lastError || new Error('모든 모델에서 요청이 실패했습니다.');
 };
 
 export const generateImage = async (prompt: string, model: string = 'imagen-4.0-generate-001'): Promise<string> => {
