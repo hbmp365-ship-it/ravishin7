@@ -39,6 +39,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
 
   const [keyword, setKeyword] = useState(() => getRandomKeywordForCategory(CATEGORIES[0].name, false));
   const [userText, setUserText] = useState('');
+  const [referenceUrl, setReferenceUrl] = useState('');
   const [cardCount, setCardCount] = useState(6);
   const [blogLength, setBlogLength] = useState(1000);
   const [sectionCount, setSectionCount] = useState(5);
@@ -89,6 +90,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       format,
       keyword,
       userText,
+      referenceUrl: referenceUrl.trim() || undefined,
       cardCount,
       blogLength,
       sectionCount,
@@ -139,6 +141,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       format,
       keyword: randomKeyword,
       userText: '',
+      referenceUrl: undefined,
       cardCount: randomCardCount,
       blogLength: randomBlogLength,
       sectionCount: randomSectionCount,
@@ -460,6 +463,18 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       <div>
         <label htmlFor="userText" className={`${commonLabelClass} mb-1`}>참고 텍스트 (선택)</label>
         <textarea id="userText" value={userText} onChange={(e) => setUserText(e.target.value)} className={`${commonInputClass} h-24`} placeholder="요약 또는 재구성이 필요한 원문을 입력하세요." />
+      </div>
+
+      <div>
+        <label htmlFor="referenceUrl" className={`${commonLabelClass} mb-1`}>참고 URL (선택)</label>
+        <input 
+          type="url" 
+          id="referenceUrl" 
+          value={referenceUrl} 
+          onChange={(e) => setReferenceUrl(e.target.value)} 
+          className={commonInputClass}
+          placeholder="https://example.com/article"
+        />
       </div>
 
       <div className="space-y-3">

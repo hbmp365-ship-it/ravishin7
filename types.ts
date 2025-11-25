@@ -4,6 +4,7 @@ export interface UserInput {
   format: string;
   keyword: string;
   userText: string;
+  referenceUrl?: string;
   cardCount: number;
   blogLength: number;
   videoLength: number;
