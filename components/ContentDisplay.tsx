@@ -716,6 +716,22 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     let inTitle = false;
     let titleLines: string[] = [];
     let titleStartIndex = 0;
+    let inSummarySection = false;
+    let inConclusionSection = false;
+    
+    // 네이버 블로그 포맷 섹션별 내용 수집
+    let inIntroSection = false;
+    let introContent: React.ReactNode[] = [];
+    let inTocSection = false;
+    let tocContent: React.ReactNode[] = [];
+    let inBodySection = false;
+    let bodyContent: React.ReactNode[] = [];
+    let currentSectionTitle = '';
+    let currentSectionContent: React.ReactNode[] = [];
+    let inReferencesSection = false;
+    let referencesContent: React.ReactNode[] = [];
+    let inTagsSection = false;
+    let tagsContent: React.ReactNode[] = [];
 
     const pushCard = () => {
       if (currentCard.length > 0) {
@@ -756,12 +772,43 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
           );
         }
         
-        elements.push(
-          <div key={`title-${titleStartIndex}`} className="mb-3 mt-4">
-            <span className="text-sm font-medium text-gray-500">제목</span>
-            {titleElement}
-          </div>
-        );
+        // 네이버 블로그 포맷인 경우 제목 스타일 강화
+        if (isNaverBlogFormat) {
+          // 키워드 강조 처리
+          let titleDisplay;
+          if (keyword) {
+            const keywordRegex = new RegExp(`(${keyword})`, 'gi');
+            const parts = titleContent.split(keywordRegex);
+            titleDisplay = (
+              <h1 className="text-5xl font-black text-gray-900 leading-tight mb-0">
+                {parts.map((part, index) => 
+                  part.toLowerCase() === keyword.toLowerCase() ? (
+                    <span key={index} className="text-[#1FA77A]">{part}</span>
+                  ) : (
+                    <React.Fragment key={index}>{part}</React.Fragment>
+                  )
+                )}
+              </h1>
+            );
+          } else {
+            titleDisplay = <h1 className="text-5xl font-black text-gray-900 leading-tight mb-0">{titleContent}</h1>;
+          }
+          elements.push(
+            <div key={`title-${titleStartIndex}`} className="mb-8 mt-8">
+              <div className="mb-3">
+                <span className="text-sm font-medium text-gray-500">제목ㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇ</span>
+              </div>
+              {titleDisplay}
+            </div>
+          );
+        } else {
+          elements.push(
+            <div key={`title-${titleStartIndex}`} className="mb-3 mt-4">
+              <span className="text-sm font-medium text-gray-500">제목</span>
+              {titleElement}
+            </div>
+          );
+        }
         titleLines = [];
         inTitle = false;
       }
@@ -778,6 +825,108 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
           </div>
         );
         postingContent = [];
+      }
+    };
+
+    // 네이버 블로그 포맷 섹션별 처리
+    const pushIntroSection = () => {
+      if (inIntroSection && introContent.length > 0) {
+        // 서론 라벨과 내용 표시
+        elements.push(
+          <div key={`intro-content-${elements.length}`} className="mb-14 mt-8">
+            <div className="mb-3">
+              <span className="text-sm font-medium text-gray-500">서론</span>
+            </div>
+            <div className="space-y-5 text-base text-gray-700 leading-relaxed">
+              {introContent}
+            </div>
+          </div>
+        );
+        introContent = [];
+        inIntroSection = false;
+      }
+    };
+
+    const pushTocSection = () => {
+      if (inTocSection && tocContent.length > 0) {
+        elements.push(
+          <div key={`toc-section-${elements.length}`} className="mt-14 mb-14 pt-8 border-t-2 border-gray-300">
+            <h3 className="text-base font-normal text-gray-500 mb-5 uppercase tracking-wide">목차</h3>
+            <div className="text-base text-gray-600 space-y-2">
+              {tocContent}
+            </div>
+          </div>
+        );
+        tocContent = [];
+        inTocSection = false;
+      }
+    };
+
+    const pushCurrentSection = () => {
+      if (currentSectionTitle && currentSectionContent.length > 0) {
+        elements.push(
+          <div key={`section-${elements.length}`} className="mt-14 mb-14 pt-8 border-t-2 border-gray-300">
+            <h3 className="text-xl font-semibold text-gray-800 mb-6">{currentSectionTitle}</h3>
+            <div className="space-y-5 text-base text-gray-700 leading-relaxed">
+              {currentSectionContent}
+            </div>
+          </div>
+        );
+        currentSectionTitle = '';
+        currentSectionContent = [];
+      }
+    };
+
+    const pushReferencesSection = () => {
+      if (inReferencesSection || (isNaverBlogFormat && referencesContent.length > 0)) {
+        const hasContent = referencesContent.length > 0;
+        const hasSources = isNaverBlogFormat && sources && sources.length > 0;
+        
+        if (hasContent || hasSources) {
+          elements.push(
+            <div key={`references-section-${elements.length}`} className="mt-14 mb-6 pt-8 border-t-2 border-gray-300">
+              <h4 className="text-base font-normal text-gray-500 mb-5 uppercase tracking-wide">참고자료</h4>
+              <div className="text-sm text-gray-600 space-y-3">
+                {hasContent && referencesContent}
+                {hasSources && (
+                  <ul className="list-none space-y-2">
+                    {sources.map((source, index) => (
+                      <li key={index} className="flex items-start">
+                        <span className="text-[#1FA77A] mr-2">•</span>
+                        <a 
+                          href={source.uri} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-blue-600 hover:text-blue-500 hover:underline break-all"
+                          title={source.uri}
+                        >
+                          {source.title || source.uri}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          );
+        }
+        referencesContent = [];
+        inReferencesSection = false;
+      }
+    };
+
+    const pushTagsSection = () => {
+      if (inTagsSection && tagsContent.length > 0) {
+        elements.push(
+          <div key={`tags-section-${elements.length}`} className="mt-14 mb-4 pt-8 border-t-2 border-gray-300">
+            <h4 className="text-base font-normal text-gray-500 mb-4 uppercase tracking-wide">태그</h4>
+            <div className="text-sm">
+              {tagsContent}
+            </div>
+          </div>
+        );
+        tagsContent = [];
+        inTagsSection = false;
       }
     };
 
@@ -885,32 +1034,73 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       } else if (line.startsWith('후속 제안')) {
           pushTitle();
           return;
+      } else if (line.startsWith('[목차]') || (line.startsWith('📌') && line.includes('목차'))) {
+        pushTitle();
+        pushCard();
+        pushTocSection();
+        pushCurrentSection();
+        pushIntroSection();
+        inCard = false;
+        inTocSection = true;
       } else if (line.startsWith('[섹션')) {
         pushTitle();
         pushCard();
+        pushCurrentSection();
+        pushIntroSection();
+        pushTocSection();
         inCard = false;
-        const sectionTitle = line.replace(/\[|\]/g, '');
-        elements.push(
-          <div key={key} className="mt-8 mb-4">
-            <h3 className="text-xl font-extrabold text-gray-900 border-l-4 border-[#1FA77A] pl-4 py-2 bg-gradient-to-r from-gray-50 to-white">{sectionTitle}</h3>
-          </div>
-        );
+        const sectionTitle = line.replace(/\[|\]/g, '').replace(/섹션\s+\d+\s+제목/, '').trim();
+        currentSectionTitle = sectionTitle;
+        currentSectionContent = [];
       } else if (line.startsWith('✍️ 인트로')) {
+        pushTitle();
+        pushCard();
+        pushIntroSection();
+        pushTocSection();
+        pushCurrentSection();
+        inCard = false;
+        inIntroSection = true;
+        introContent = [];
+        // 서론 헤더 제거: 본문과 동일한 스타일로 표시
+      } else if (line.startsWith('📸 대표 이미지') || (line.startsWith('📸') && line.includes('대표'))) {
         pushTitle();
         pushCard();
         inCard = false;
         elements.push(
-          <div key={key} className="mt-6 mb-3 pt-4 border-t border-gray-200">
-            <h3 className="text-xl font-bold text-[#1FA77A] mb-3">{line}</h3>
+          <div key={key} className="mt-6 mb-6 p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-lg border border-gray-200">
+            <h3 className="text-base font-semibold text-gray-700 mb-2 flex items-center">
+              <span className="mr-2">📸</span>
+              대표 이미지
+            </h3>
           </div>
         );
       } else if (line.startsWith('📚 본문')) {
         pushTitle();
         pushCard();
         inCard = false;
+        // 본문 구성 헤더는 표시하지 않음 (섹션 제목으로 대체)
+      } else if (line.startsWith('🟧') || (line.startsWith('핵심 요약') || line.includes('핵심 요약'))) {
+        pushTitle();
+        pushCard();
+        pushCurrentSection();
+        inCard = false;
+        inSummarySection = true;
+        inConclusionSection = false;
         elements.push(
-          <div key={key} className="mt-8 mb-4 pt-4 border-t-2 border-[#1FA77A]">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">{line}</h3>
+          <div key={key} className="mt-14 mb-6 pt-8 border-t-2 border-gray-300">
+            <h3 className="text-base font-normal text-gray-500 mb-5 uppercase tracking-wide">핵심 요약</h3>
+          </div>
+        );
+      } else if (line.startsWith('🟪') || (line.startsWith('결론') && !line.includes('참고'))) {
+        pushTitle();
+        pushCard();
+        pushCurrentSection();
+        inCard = false;
+        inSummarySection = false;
+        inConclusionSection = true;
+        elements.push(
+          <div key={key} className="mt-14 mb-6 pt-8 border-t-2 border-gray-300">
+            <h3 className="text-base font-normal text-gray-500 mb-5 uppercase tracking-wide">결론</h3>
           </div>
         );
       } else if (line.startsWith('✅')) {
@@ -918,19 +1108,35 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         pushCard();
         inCard = false;
         elements.push(
-          <div key={key} className="mt-8 mb-3 pt-4 border-t border-gray-200">
-            <h3 className="text-xl font-bold text-[#1FA77A] mb-3">{line}</h3>
+          <div key={key} className="mt-8 mb-6 p-5 bg-green-50 rounded-lg border-l-4 border-green-400 shadow-sm">
+            <h3 className="text-xl font-bold text-green-700 mb-3 flex items-center">
+              <span className="mr-2">✅</span>
+              {line.replace('✅', '').trim() || '마무리'}
+            </h3>
           </div>
         );
       } else if (line.startsWith('🔎 참고자료')) {
         pushTitle();
         pushCard();
+        pushCurrentSection();
+        pushIntroSection();
+        pushTocSection();
+        pushTagsSection();
         inCard = false;
-        elements.push(
-          <div key={key} className="mt-6 mb-2 pt-3 border-t border-gray-300">
-            <h4 className="text-base font-semibold text-gray-600 mb-2">{line}</h4>
-          </div>
-        );
+        inSummarySection = false;
+        inConclusionSection = false;
+        inReferencesSection = true;
+        referencesContent = [];
+      } else if (line.startsWith('🟫') || (line.startsWith('태그') && line.includes('태그'))) {
+        pushTitle();
+        pushCard();
+        pushCurrentSection();
+        pushIntroSection();
+        pushTocSection();
+        pushReferencesSection();
+        inCard = false;
+        inTagsSection = true;
+        tagsContent = [];
       } else if (line.startsWith('🎬')) {
         pushTitle();
         pushCard();
@@ -940,12 +1146,81 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         if (inTitle) {
           // 제목이 여러 줄로 계속되는 경우
           titleLines.push(line.trim());
+        } else if (inSummarySection) {
+          // 핵심 요약 섹션 내용 표시
+          const isListItem = /^[•\-\-]\s/.test(line.trim());
+          if (isListItem) {
+            elements.push(
+              <div key={key} className="mb-3">
+                <p className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
+              </div>
+            );
+          } else {
+            elements.push(
+              <p key={key} className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-3">{line.trim()}</p>
+            );
+          }
+        } else if (inConclusionSection) {
+          // 결론 섹션 내용 표시
+          elements.push(
+            <p key={key} className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-4">{line.trim()}</p>
+          );
         } else {
-          // 일반 본문 텍스트 - 줄 간격 및 패딩 추가
-          const paragraphClass = inCard 
-            ? "text-gray-700 whitespace-pre-wrap leading-relaxed mb-3"
-            : "text-base text-gray-700 whitespace-pre-wrap leading-loose mb-4 pl-1";
-          (inCard ? currentCard : elements).push(<p key={key} className={paragraphClass}>{line}</p>);
+          // 네이버 블로그 포맷 섹션별 내용 수집
+          if (isNaverBlogFormat) {
+            const isListItem = /^[•\-\*]\s/.test(line.trim());
+            const textElement = isListItem ? (
+              <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#1FA77A]/30 py-1">
+                <p className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
+              </div>
+            ) : (
+              <p key={key} className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-3">{line.trim()}</p>
+            );
+
+            if (inIntroSection) {
+              // 설명 텍스트 필터링: "(첫 문단)", "가장 중요한 영역", "키워드 총" 등의 설명 제거
+              const lineText = line.trim();
+              if (!lineText.match(/^[✔️✅]\s*(문제|해결책|핵심키워드|키워드)/) && 
+                  !lineText.match(/\(첫 문단\)|가장 중요한 영역|키워드 총.*회/) &&
+                  !lineText.match(/^[•\-\*]\s*(문제|해결책)/)) {
+                introContent.push(textElement);
+              }
+            } else if (inTocSection) {
+              tocContent.push(textElement);
+            } else if (currentSectionTitle) {
+              currentSectionContent.push(textElement);
+            } else if (inReferencesSection) {
+              referencesContent.push(<p key={key} className="text-sm text-gray-600 mb-2">{line.trim()}</p>);
+            } else if (inTagsSection) {
+              if (line.startsWith('#')) {
+                tagsContent.push(<span key={key} className="text-[#1FA77A] font-medium mr-2">{line}</span>);
+              } else {
+                tagsContent.push(<p key={key} className="text-[#1FA77A] font-medium">{line.trim()}</p>);
+              }
+            } else {
+              // 일반 본문 텍스트
+              const paragraphClass = inCard 
+                ? "text-gray-700 whitespace-pre-wrap leading-relaxed mb-3"
+                : "text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-4 pl-2 border-l-2 border-gray-200 py-1";
+              (inCard ? currentCard : elements).push(<p key={key} className={paragraphClass}>{line}</p>);
+            }
+          } else {
+            // 일반 포맷 처리
+            const isListItem = /^[•\-\*]\s/.test(line.trim());
+            
+            if (isListItem) {
+              (inCard ? currentCard : elements).push(
+                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#1FA77A]/30 py-1">
+                  <p className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
+                </div>
+              );
+            } else {
+              const paragraphClass = inCard 
+                ? "text-gray-700 whitespace-pre-wrap leading-relaxed mb-3"
+                : "text-base text-gray-700 whitespace-pre-wrap leading-loose mb-4 pl-1";
+              (inCard ? currentCard : elements).push(<p key={key} className={paragraphClass}>{line}</p>);
+            }
+          }
         }
       }
     });
@@ -953,8 +1228,49 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     pushTitle();
     pushCard();
     pushPostingSection();
+    pushCurrentSection();
+    pushIntroSection();
+    pushTocSection();
+    pushReferencesSection();
+    pushTagsSection();
+    
+    // 네이버 블로그 포맷일 때 sources가 있고 참고자료 섹션이 없으면 추가
+    if (isNaverBlogFormat && sources && sources.length > 0) {
+      const hasReferencesSection = elements.some(el => 
+        React.isValidElement(el) && 
+        el.key && 
+        String(el.key).includes('references-section')
+      );
+      
+      if (!hasReferencesSection) {
+        elements.push(
+          <div key={`references-section-sources-${elements.length}`} className="mt-14 mb-6 pt-8 border-t-2 border-gray-300">
+            <h4 className="text-base font-normal text-gray-500 mb-5 uppercase tracking-wide">참고자료</h4>
+            <div className="text-sm text-gray-600 space-y-3">
+              <ul className="list-none space-y-2">
+                {sources.map((source, index) => (
+                  <li key={index} className="flex items-start">
+                    <span className="text-[#1FA77A] mr-2">•</span>
+                    <a 
+                      href={source.uri} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-blue-600 hover:text-blue-500 hover:underline break-all"
+                      title={source.uri}
+                    >
+                      {source.title || source.uri}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        );
+      }
+    }
+    
     return elements;
-  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage]);
+  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, isNaverBlogFormat, sources]);
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
@@ -1011,23 +1327,51 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         {!isLoading && content && (
             <div className="space-y-4">
               {renderedContent}
-              {suggestions && suggestions.length > 0 && (
-                <div className="mt-8 pt-6 border-t border-gray-200">
-                    <h4 className="text-lg font-semibold text-gray-800 mb-3">다음 콘텐츠 제안:</h4>
-                    <div className="flex flex-wrap gap-3">
-                        {suggestions.map((suggestion, index) => (
-                            <button
-                                key={index}
-                                onClick={() => onSuggestionClick(suggestion)}
-                                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-full text-sm transition-all duration-200 transform hover:scale-105"
-                            >
-                                {suggestion}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-              )}
-               {sources && sources.length > 0 && (
+              <div className="mt-8 pt-6 border-t border-gray-200">
+                <h4 className="text-lg font-semibold text-gray-800 mb-3">연관 키워드 / 주제 추천</h4>
+                {suggestions && suggestions.length > 0 ? (
+                  <div className="flex flex-wrap gap-3">
+                    {suggestions.slice(0, 3).map((suggestion, index) => (
+                      <button
+                        key={index}
+                        onClick={() => onSuggestionClick(suggestion)}
+                        className="bg-gradient-to-r from-[#1FA77A] to-[#1FB88A] hover:from-[#1a8c68] hover:to-[#1a9d78] text-white font-medium py-2.5 px-5 rounded-full text-sm transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-3">
+                    {(() => {
+                      // content에서 키워드 추출 시도
+                      const keywordMatch = content.match(/🔑 핵심키워드:\s*(.+)/);
+                      const extractedKeywords = keywordMatch 
+                        ? keywordMatch[1].split(',').map(k => k.trim()).filter(k => k).slice(0, 3)
+                        : [];
+                      
+                      if (extractedKeywords.length > 0) {
+                        return extractedKeywords.map((keyword, index) => (
+                          <button
+                            key={index}
+                            onClick={() => onSuggestionClick(keyword)}
+                            className="bg-gradient-to-r from-[#1FA77A] to-[#1FB88A] hover:from-[#1a8c68] hover:to-[#1a9d78] text-white font-medium py-2.5 px-5 rounded-full text-sm transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg"
+                          >
+                            {keyword}
+                          </button>
+                        ));
+                      }
+                      
+                      // 키워드를 추출할 수 없을 때 기본 메시지
+                      return (
+                        <p className="text-gray-500 text-sm">연관 키워드를 생성 중입니다...</p>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+               {/* 네이버 블로그 포맷이 아닐 때만 sources 표시 (네이버 블로그는 참고자료 섹션에 포함) */}
+               {sources && sources.length > 0 && !isNaverBlogFormat && (
                 <div className="mt-8 pt-6 border-t border-gray-200">
                     <h4 className="text-lg font-semibold text-gray-800 mb-3">AI가 참고한 자료</h4>
                     <ul className="list-disc list-inside space-y-2">
