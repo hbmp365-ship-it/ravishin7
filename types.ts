@@ -11,6 +11,15 @@ export interface UserInput {
   sceneCount: number;
   sectionCount: number;
   tone: string;
+  aspectRatio?: string;
+  theme?: string;
+  style?: string;
+  headline?: string;
+  subheadline?: string;
+  bodyCopy?: string;
+  cta?: string;
+  imageGeneratorTool?: string;
+  alignment?: string;
   isGolfRelated?: boolean;
 }
 

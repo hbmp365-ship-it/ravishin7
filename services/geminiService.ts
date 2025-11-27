@@ -101,16 +101,73 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
   let userPrompt = `
 아래 항목을 채워서 그대로 입력하세요.
 
-카테고리: ${input.category}
 형식: ${input.format}
 `;
 
-  if (input.keyword && input.keyword.trim()) {
-    userPrompt += `키워드/주제: ${input.keyword}\n`;
-  }
-
-  if (input.userText) {
-    userPrompt += `user_text: ${input.userText}\n`;
+  if (input.format === 'ETC-BANNER') {
+    // 배너/포스터 포맷일 때
+    const headline = input.headline || '';
+    const headlineLength = headline.length;
+    userPrompt += `헤드라인: "${headline}"\n`;
+    if (headlineLength > 8) {
+      userPrompt += `\n🚨🚨🚨 절대 엄수 규칙 🚨🚨🚨\n`;
+      userPrompt += `헤드라인 글자 수: ${headlineLength}자 (8글자 초과)\n`;
+      userPrompt += `📝 원본 헤드라인: "${headline}"\n`;
+      userPrompt += `\n❌ 절대 금지:\n`;
+      userPrompt += `- 단어 추가 금지 (예: "오픈!!" → "오픈 기념" 절대 금지)\n`;
+      userPrompt += `- 단어 변경 금지 (예: "오픈" → "런칭", "서비스" → "앱" 절대 금지)\n`;
+      userPrompt += `- 느낌표/물음표 제거 금지 (예: "오픈!!" → "오픈" 절대 금지)\n`;
+      userPrompt += `- 띄어쓰기 변경 금지\n`;
+      userPrompt += `- 어떠한 수정도 금지\n`;
+      userPrompt += `\n✅ 필수 출력:\n`;
+      userPrompt += `"${headline}" ← 이것을 정확히 100% 그대로 사용하세요.\n`;
+      userPrompt += `\n⚠️ 경고: 헤드라인을 조금이라도 수정하면 심각한 오류입니다. 반드시 원본 그대로 사용하세요!\n\n`;
+    } else {
+      userPrompt += `헤드라인 글자 수: ${headlineLength}자 (8글자 이하 - 확장 가능)\n`;
+    }
+    
+    if (input.subheadline && input.subheadline.trim()) {
+      const subheadlineLength = input.subheadline.length;
+      userPrompt += `서브헤드라인: "${input.subheadline}"\n`;
+      if (subheadlineLength > 8) {
+        userPrompt += `🚨 서브헤드라인 글자 수: ${subheadlineLength}자 (8글자 초과) → 그대로 사용 필수\n`;
+        userPrompt += `✅ 반드시 "${input.subheadline}" 정확히 그대로 출력하세요. 수정/추가/삭제 금지!\n\n`;
+      } else {
+        userPrompt += `서브헤드라인 글자 수: ${subheadlineLength}자 (8글자 이하 - 확장 가능)\n`;
+      }
+    } else {
+      userPrompt += `서브헤드라인: (입력 없음 - 자동 생성)\n`;
+    }
+    
+    if (input.bodyCopy && input.bodyCopy.trim()) {
+      userPrompt += `바디카피: ${input.bodyCopy}\n`;
+      userPrompt += `바디카피 글자 수: ${input.bodyCopy.length}자\n`;
+      userPrompt += `✅ 입력된 바디카피를 그대로 사용하세요.\n`;
+    } else {
+      userPrompt += `바디카피: (입력 없음 - 자동 생성)\n`;
+    }
+    
+    if (input.cta && input.cta.trim()) {
+      const ctaLength = input.cta.length;
+      userPrompt += `CTA: "${input.cta}"\n`;
+      if (ctaLength > 8) {
+        userPrompt += `🚨 CTA 글자 수: ${ctaLength}자 (8글자 초과) → 그대로 사용 필수\n`;
+        userPrompt += `✅ 반드시 "${input.cta}" 정확히 그대로 출력하세요. 수정/추가/삭제 금지!\n\n`;
+      } else {
+        userPrompt += `CTA 글자 수: ${ctaLength}자 (8글자 이하 - 확장 가능)\n`;
+      }
+    } else {
+      userPrompt += `CTA: (입력 없음 - 자동 생성)\n`;
+    }
+  } else {
+    // 다른 포맷일 때
+    userPrompt += `카테고리: ${input.category}\n`;
+    if (input.keyword && input.keyword.trim()) {
+      userPrompt += `키워드/주제: ${input.keyword}\n`;
+    }
+    if (input.userText) {
+      userPrompt += `user_text: ${input.userText}\n`;
+    }
   }
   
   if (input.referenceUrl) {
@@ -132,6 +189,29 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
   }
   if (input.format === 'YOUTUBE-SHORTFORM') {
     userPrompt += `video_length: ${input.videoLength}\n`;
+  }
+  if (input.format === 'ETC-BANNER') {
+    if (input.aspectRatio) {
+      userPrompt += `기본 비율: ${input.aspectRatio}\n`;
+    }
+    if (input.theme) {
+      userPrompt += `테마: ${input.theme}\n`;
+      if (input.theme === '다크모드') {
+        userPrompt += `⚠️ 중요: 어두운 배경(dark background)에 밝은 텍스트(light text)를 사용하세요.\n`;
+      } else {
+        userPrompt += `⚠️ 중요: 밝은 배경(light background)에 어두운 텍스트(dark text)를 사용하세요.\n`;
+      }
+    }
+    if (input.style) {
+      userPrompt += `시각적 스타일: ${input.style}\n`;
+    }
+    if (input.alignment) {
+      userPrompt += `정렬 옵션: ${input.alignment}\n`;
+    }
+    if (input.imageGeneratorTool) {
+      userPrompt += `이미지 생성 프롬프트 모델: ${input.imageGeneratorTool}\n`;
+      userPrompt += `⚠️ 중요: 선택된 모델(${input.imageGeneratorTool})에 최적화된 프롬프트를 작성하세요.\n`;
+    }
   }
   if (input.tone) {
     userPrompt += `톤앤매너: ${input.tone}\n`;

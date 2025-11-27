@@ -133,6 +133,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
   const [isCsvCopied, setIsCsvCopied] = useState(false);
   const [imageStatuses, setImageStatuses] = useState<Record<string, ImageStatus>>({});
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
+  const [isBannerImageGenerating, setIsBannerImageGenerating] = useState(false);
+  const [bannerPromptCopied, setBannerPromptCopied] = useState(false);
 
   const imagePrompts = useMemo(() => {
     if (!content) return [];
@@ -158,6 +160,37 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     return /\[섹션\s*\d+\s*제목\]/.test(content) || /✍️ 인트로/.test(content) || /✅\s*1\.\s*제목/.test(content);
   }, [content, format]);
 
+  const isBannerFormat = useMemo(() => {
+    if (format === 'ETC-BANNER') return true;
+    if (!content) return false;
+    return /기본 비율:|스타일:|📐 디자인 컨셉|📝 주요 텍스트 요소/.test(content);
+  }, [content, format]);
+
+  // 배너/포스터 포맷의 AI 이미지 생성 프롬프트 추출
+  const bannerImagePrompt = useMemo(() => {
+    if (!isBannerFormat || !content) return '';
+    const lines = content.split('\n');
+    let inPromptSection = false;
+    let promptLines: string[] = [];
+    
+    for (const line of lines) {
+      if (line.startsWith('🎨 AI 이미지 생성 프롬프트')) {
+        inPromptSection = true;
+        continue;
+      }
+      if (inPromptSection) {
+        if (line.startsWith('💡 디자인 가이드라인') || line.startsWith('후속 제안') || line.trim() === '') {
+          break;
+        }
+        if (line.trim() && !line.startsWith('🎨')) {
+          promptLines.push(line.trim());
+        }
+      }
+    }
+    
+    return promptLines.join('\n').trim();
+  }, [content, isBannerFormat]);
+
   const showSpreadsheetButton = useMemo(() => {
     return isInstagramCardFormat || isNaverBlogFormat;
   }, [isInstagramCardFormat, isNaverBlogFormat]);
@@ -167,6 +200,15 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     if (success) {
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 2000);
+    }
+  };
+
+  const handleCopyBannerPrompt = async () => {
+    if (!bannerImagePrompt) return;
+    const success = await copyToClipboard(bannerImagePrompt);
+    if (success) {
+      setBannerPromptCopied(true);
+      setTimeout(() => setBannerPromptCopied(false), 2000);
     }
   };
   
@@ -201,6 +243,19 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         }));
     }
   }, []);
+
+  const handleGenerateBannerImage = useCallback(async () => {
+    if (!bannerImagePrompt) return;
+    
+    setIsBannerImageGenerating(true);
+    try {
+      await handleGenerateSingleImage(bannerImagePrompt);
+    } catch (error) {
+      console.error('배너 이미지 생성 실패:', error);
+    } finally {
+      setIsBannerImageGenerating(false);
+    }
+  }, [bannerImagePrompt, handleGenerateSingleImage]);
 
   const handleGenerateAllImages = useCallback(async () => {
     if (!imagePrompts.length) return;
@@ -803,6 +858,22 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     let inTagsSection = false;
     let tagsContent: React.ReactNode[] = [];
 
+    // 배너/포스터 포맷 섹션별 내용 수집
+    let inBannerTitle = false;
+    let bannerTitleContent: string[] = [];
+    let inBannerAspectRatio = false;
+    let bannerAspectRatioContent: string[] = [];
+    let inBannerStyle = false;
+    let bannerStyleContent: string[] = [];
+    let inBannerDesignConcept = false;
+    let bannerDesignConceptContent: React.ReactNode[] = [];
+    let inBannerTextElements = false;
+    let bannerTextElementsContent: React.ReactNode[] = [];
+    let inBannerImagePrompt = false;
+    let bannerImagePromptContent: React.ReactNode[] = [];
+    let inBannerGuidelines = false;
+    let bannerGuidelinesContent: React.ReactNode[] = [];
+
     const pushCard = () => {
       if (currentCard.length > 0) {
         elements.push(
@@ -1115,6 +1186,171 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         return;
       }
       
+      // 배너/포스터 포맷 처리
+      if (isBannerFormat) {
+        if (line.match(/^제목(\(.*\))?:/)) {
+          pushCard();
+          pushTitle();
+          inCard = false;
+          inBannerTitle = true;
+          bannerTitleContent = [];
+          const titleContent = line.replace(/^제목(\(.*\))?:\s*/, '').trim();
+          if (titleContent) {
+            bannerTitleContent.push(titleContent);
+          }
+        } else if (inBannerTitle && line.trim() && !line.startsWith('기본 비율:') && !line.startsWith('스타일:') && !line.startsWith('📐') && !line.startsWith('📝') && !line.startsWith('🎨') && !line.startsWith('💡')) {
+          bannerTitleContent.push(line.trim());
+        } else if (line.startsWith('기본 비율:')) {
+          inBannerTitle = false;
+          inBannerAspectRatio = true;
+          bannerAspectRatioContent = [];
+          const ratioContent = line.replace(/^기본 비율:\s*/, '').trim();
+          if (ratioContent) {
+            bannerAspectRatioContent.push(ratioContent);
+          }
+        } else if (inBannerAspectRatio && line.trim() && !line.startsWith('스타일:') && !line.startsWith('📐') && !line.startsWith('📝') && !line.startsWith('🎨') && !line.startsWith('💡')) {
+          bannerAspectRatioContent.push(line.trim());
+        } else if (line.startsWith('스타일:')) {
+          inBannerAspectRatio = false;
+          inBannerStyle = true;
+          bannerStyleContent = [];
+          const styleContent = line.replace(/^스타일:\s*/, '').trim();
+          if (styleContent) {
+            bannerStyleContent.push(styleContent);
+          }
+        } else if (inBannerStyle && line.trim() && !line.startsWith('📐') && !line.startsWith('📝') && !line.startsWith('🎨') && !line.startsWith('💡')) {
+          bannerStyleContent.push(line.trim());
+        } else if (line.startsWith('📐 디자인 컨셉')) {
+          inBannerTitle = false;
+          inBannerAspectRatio = false;
+          inBannerStyle = false;
+          inBannerDesignConcept = true;
+          bannerDesignConceptContent = [];
+        } else if (line.startsWith('📝 주요 텍스트 요소')) {
+          inBannerDesignConcept = false;
+          inBannerTextElements = true;
+          bannerTextElementsContent = [];
+        } else if (line.startsWith('🎨 AI 이미지 생성 프롬프트')) {
+          inBannerTextElements = false;
+          inBannerImagePrompt = true;
+          bannerImagePromptContent = [];
+        } else if (line.startsWith('💡 디자인 가이드라인')) {
+          inBannerImagePrompt = false;
+          inBannerGuidelines = true;
+          bannerGuidelinesContent = [];
+        } else if (line.startsWith('후속 제안')) {
+          inBannerGuidelines = false;
+          return;
+        } else if (inBannerTitle && bannerTitleContent.length > 0) {
+          // 배너 제목 렌더링
+          elements.push(
+            <div key="banner-title" className="mb-8 mt-4">
+              <div className="mb-2">
+                <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">헤드라인</span>
+              </div>
+              <h1 className="text-4xl font-black text-gray-900 leading-tight">{bannerTitleContent.join(' ')}</h1>
+            </div>
+          );
+          bannerTitleContent = [];
+          inBannerTitle = false;
+        } else if (inBannerAspectRatio && bannerAspectRatioContent.length > 0) {
+          // 기본 비율 렌더링
+          elements.push(
+            <div key="banner-aspect-ratio" className="mb-6">
+              <div className="mb-2">
+                <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">기본 비율</span>
+              </div>
+              <p className="text-lg font-semibold text-gray-800">{bannerAspectRatioContent.join(' ')}</p>
+            </div>
+          );
+          bannerAspectRatioContent = [];
+          inBannerAspectRatio = false;
+        } else if (inBannerStyle && bannerStyleContent.length > 0) {
+          // 스타일 렌더링
+          elements.push(
+            <div key="banner-style" className="mb-8">
+              <div className="mb-2">
+                <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">스타일</span>
+              </div>
+              <p className="text-lg font-semibold text-gray-800">{bannerStyleContent.join(' ')}</p>
+            </div>
+          );
+          bannerStyleContent = [];
+          inBannerStyle = false;
+        } else if (inBannerDesignConcept && line.trim() && !line.startsWith('📐')) {
+          const isListItem = /^[-•]\s/.test(line.trim());
+          const textElement = isListItem ? (
+            <li key={key} className="text-base text-gray-700 mb-2 ml-4">{line.trim().replace(/^[-•]\s/, '')}</li>
+          ) : (
+            <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed">{line.trim()}</p>
+          );
+          bannerDesignConceptContent.push(textElement);
+        } else if (inBannerTextElements && line.trim() && !line.startsWith('📝')) {
+          // 헤드라인, 서브헤드라인, CTA 파싱
+          if (line.match(/^[-•]\s*헤드라인:/)) {
+            const headlineText = line.replace(/^[-•]\s*헤드라인:\s*/, '').trim();
+            bannerTextElementsContent.push(
+              <div key="banner-headline" className="mb-4">
+                <div className="mb-1">
+                  <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">헤드라인</span>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{headlineText}</p>
+              </div>
+            );
+          } else if (line.match(/^[-•]\s*서브헤드라인:/)) {
+            const subheadlineText = line.replace(/^[-•]\s*서브헤드라인:\s*/, '').trim();
+            bannerTextElementsContent.push(
+              <div key="banner-subheadline" className="mb-4">
+                <div className="mb-1">
+                  <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">서브헤드라인</span>
+                </div>
+                <p className="text-xl font-semibold text-gray-800">{subheadlineText}</p>
+              </div>
+            );
+          } else if (line.match(/^[-•]\s*바디카피:/)) {
+            const bodyCopyText = line.replace(/^[-•]\s*바디카피:\s*/, '').trim();
+            bannerTextElementsContent.push(
+              <div key="banner-bodycopy" className="mb-4">
+                <div className="mb-1">
+                  <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">바디카피</span>
+                </div>
+                <p className="text-base text-gray-700 leading-relaxed whitespace-pre-line">{bodyCopyText}</p>
+              </div>
+            );
+          } else if (line.match(/^[-•]\s*CTA 문구:/)) {
+            const ctaText = line.replace(/^[-•]\s*CTA 문구:\s*/, '').trim();
+            bannerTextElementsContent.push(
+              <div key="banner-cta" className="mb-4">
+                <div className="mb-1">
+                  <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">CTA</span>
+                </div>
+                <p className="text-lg font-semibold text-[#1FA77A]">{ctaText}</p>
+              </div>
+            );
+          } else if (line.trim()) {
+            const isListItem = /^[-•]\s/.test(line.trim());
+            const textElement = isListItem ? (
+              <li key={key} className="text-base text-gray-700 mb-2 ml-4">{line.trim().replace(/^[-•]\s/, '')}</li>
+            ) : (
+              <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed">{line.trim()}</p>
+            );
+            bannerTextElementsContent.push(textElement);
+          }
+        } else if (inBannerImagePrompt && line.trim() && !line.startsWith('🎨')) {
+          const textElement = <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed font-mono bg-gray-50 p-3 rounded border border-gray-200">{line.trim()}</p>;
+          bannerImagePromptContent.push(textElement);
+        } else if (inBannerGuidelines && line.trim() && !line.startsWith('💡')) {
+          const isListItem = /^[-•]\s/.test(line.trim());
+          const textElement = isListItem ? (
+            <li key={key} className="text-base text-gray-700 mb-2 ml-4">{line.trim().replace(/^[-•]\s/, '')}</li>
+          ) : (
+            <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed">{line.trim()}</p>
+          );
+          bannerGuidelinesContent.push(textElement);
+        }
+        return; // 배너 포맷 처리 후 다른 로직 실행하지 않음
+      }
+
       if (line.match(/^제목(\(.*\))?:/) || (isNaverBlogFormat && line.match(/^✅\s*1\.\s*제목/))) {
         pushCard();
         pushTitle();
@@ -1466,6 +1702,105 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       }
     });
 
+    // 배너/포스터 포맷 섹션 push
+    if (isBannerFormat) {
+      if (bannerTitleContent.length > 0) {
+        elements.push(
+          <div key="banner-title-final" className="mb-8 mt-4">
+            <div className="mb-2">
+              <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">헤드라인</span>
+            </div>
+            <h1 className="text-4xl font-black text-gray-900 leading-tight">{bannerTitleContent.join(' ')}</h1>
+          </div>
+        );
+      }
+      if (bannerAspectRatioContent.length > 0) {
+        elements.push(
+          <div key="banner-aspect-ratio-final" className="mb-6">
+            <div className="mb-2">
+              <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">기본 비율</span>
+            </div>
+            <p className="text-lg font-semibold text-gray-800">{bannerAspectRatioContent.join(' ')}</p>
+          </div>
+        );
+      }
+      if (bannerStyleContent.length > 0) {
+        elements.push(
+          <div key="banner-style-final" className="mb-8">
+            <div className="mb-2">
+              <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">스타일</span>
+            </div>
+            <p className="text-lg font-semibold text-gray-800">{bannerStyleContent.join(' ')}</p>
+          </div>
+        );
+      }
+      if (bannerDesignConceptContent.length > 0) {
+        elements.push(
+          <div key="banner-design-concept" className="mb-8 pt-6 border-t border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+              <span className="mr-2">📐</span>
+              디자인 컨셉
+            </h3>
+            <div className="space-y-3">
+              {bannerDesignConceptContent}
+            </div>
+          </div>
+        );
+      }
+      if (bannerTextElementsContent.length > 0) {
+        elements.push(
+          <div key="banner-text-elements" className="mb-8 pt-6 border-t border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+              <span className="mr-2">📝</span>
+              주요 텍스트 요소
+            </h3>
+            <div className="space-y-4">
+              {bannerTextElementsContent}
+            </div>
+          </div>
+        );
+      }
+      if (bannerImagePromptContent.length > 0) {
+        const bannerImageStatus = bannerImagePrompt ? (imageStatuses[bannerImagePrompt] || { url: null, s3Url: null, isLoading: false, error: null }) : null;
+        elements.push(
+          <div key="banner-image-prompt" className="mb-8 pt-6 border-t border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+              <span className="mr-2">🎨</span>
+              AI 이미지 생성 프롬프트 (구글 나노바나나 등)
+            </h3>
+            <div className="space-y-3">
+              {bannerImagePromptContent}
+              {bannerImagePrompt && bannerImageStatus && (
+                <div className="mt-4">
+                  <ImagePrompt 
+                    text={bannerImagePrompt} 
+                    onGenerate={handleGenerateSingleImage} 
+                    onSwitchToImageTab={onSwitchToImageTab} 
+                    status={bannerImageStatus} 
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+      if (bannerGuidelinesContent.length > 0) {
+        elements.push(
+          <div key="banner-guidelines" className="mb-8 pt-6 border-t border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+              <span className="mr-2">💡</span>
+              디자인 가이드라인
+            </h3>
+            <div className="space-y-3">
+              {bannerGuidelinesContent}
+            </div>
+          </div>
+        );
+      }
+      return elements;
+    }
+
+    // 배너 포맷이 아닐 때만 기존 로직 실행
     pushTitle();
     pushCard();
     pushPostingSection();
@@ -1535,7 +1870,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     }
     
     return elements;
-  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, isNaverBlogFormat, sources]);
+  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, isNaverBlogFormat, isBannerFormat, bannerImagePrompt, sources]);
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
@@ -1564,6 +1899,39 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                  <button onClick={handleDownloadAll} className="flex items-center text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-4 rounded-md transition-colors">
                     {`생성된 이미지 다운로드 (${generatedImageUrls.length})`}
                  </button>
+            )}
+            {isBannerFormat && bannerImagePrompt && (
+              <>
+                <button 
+                  onClick={handleGenerateBannerImage} 
+                  disabled={isBannerImageGenerating}
+                  className="flex items-center text-sm bg-[#FF9500] hover:bg-[#e88500] text-white font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isBannerImageGenerating ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      이미지 생성
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={handleCopyBannerPrompt} 
+                  className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors"
+                >
+                  {bannerPromptCopied ? <CheckIcon className="w-4 h-4 mr-2 text-green-500" /> : <CopyIcon className="w-4 h-4 mr-2" />}
+                  {bannerPromptCopied ? '복사 완료!' : '프롬프트 복사'}
+                </button>
+              </>
             )}
             <button onClick={handleCopyAll} className="flex items-center text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-2 px-4 rounded-md transition-colors">
                 {copiedAll ? <CheckIcon className="w-4 h-4 mr-2 text-green-400" /> : <CopyIcon className="w-4 h-4 mr-2" />}
