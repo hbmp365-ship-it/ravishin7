@@ -104,6 +104,14 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
 형식: ${input.format}
 `;
 
+  // 골프 관련 컨텐츠 토글 처리
+  if (input.isGolfRelated === false) {
+    userPrompt += `\n🚨🚨🚨 중요: 골프 관련 컨텐츠 비활성화 🚨🚨🚨\n`;
+    userPrompt += `골프와 연관된 내용, 키워드, 예시, 참고사항을 절대 사용하지 마세요.\n`;
+    userPrompt += `골프장, 골프 용품, 골프 선수, 골프 용어 등 골프 관련 모든 내용을 제외하고 컨텐츠를 생성하세요.\n`;
+    userPrompt += `일반적인 주제나 사용자가 입력한 주제에만 집중하여 컨텐츠를 생성하세요.\n\n`;
+  }
+
   if (input.format === 'ETC-BANNER') {
     // 배너/포스터 포맷일 때
     const headline = input.headline || '';
