@@ -148,6 +148,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     // FIX: Explicitly cast the result of Object.values to fix type inference issues where `s` is treated as `unknown`.
     return (Object.values(imageStatuses) as ImageStatus[]).map(s => s.url).filter((url): url is string => !!url);
   }, [imageStatuses]);
+
+  // 유튜브 숏폼 포맷일 때 생성된 이미지 개수 계산 (s3Url 또는 url이 있으면 생성된 것으로 간주)
+  const generatedImageCount = useMemo(() => {
+    if (format === 'YOUTUBE-SHORTFORM') {
+      return (Object.values(imageStatuses) as ImageStatus[]).filter(s => s.url || s.s3Url).length;
+    }
+    return generatedImageUrls.length;
+  }, [imageStatuses, format, generatedImageUrls.length]);
   
   const isInstagramCardFormat = useMemo(() => {
     if (!content) return false;
@@ -314,20 +322,411 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     setIsBatchGenerating(false);
   }, [imagePrompts, imageStatuses]);
   
-  const handleDownloadAll = useCallback(() => {
-    generatedImageUrls.forEach((url, index) => {
-        // FIX: Explicitly cast the result of Object.entries to fix type inference issues where `status` is treated as `unknown`.
-        const entry = (Object.entries(imageStatuses) as [string, ImageStatus][]).find(([, status]) => status.url === url);
-        const prompt = entry ? entry[0] : `image_${index + 1}`;
-        const filename = prompt.substring(0, 40).replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.jpeg';
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    });
-  }, [generatedImageUrls, imageStatuses]);
+  const handleDownloadAll = useCallback(async () => {
+    // 유튜브 숏폼 포맷인 경우 webhook으로 전송 (이미지 생성 없이 내용만 전송)
+    if (format === 'YOUTUBE-SHORTFORM') {
+      try {
+        const webhookUrl = 'https://teeshot.app.n8n.cloud/webhook-test/dc153347-2c55-4d24-8686-439c01703034';
+        
+        // content 파싱하여 구조화된 데이터 생성
+        let title = '';
+        let videoLength = '';
+        const scenes: { number: number; content: string; postingText?: string; bgm?: string; tags?: string[] }[] = [];
+        
+        if (content) {
+          const lines = content.split('\n');
+          let currentScene: { number: number; content: string; postingText?: string; bgm?: string; tags?: string[] } | null = null;
+          let isParsingTitle = false;
+          let titleParts: string[] = [];
+          let isInScene = false;
+          let isParsingPostingText = false;
+          let postingTextParts: string[] = [];
+          let isParsingBgm = false;
+          let bgmText = '';
+          let isParsingTags = false;
+          let tags: string[] = [];
+          
+          for (const line of lines) {
+            // Scene 파싱 (먼저 체크하여 Scene 내부의 다른 패턴과 구분)
+            const sceneMatch = line.match(/\[Scene\s*(\d+)\]|Scene\s*(\d+)[:\s]/i);
+            if (sceneMatch) {
+              // 제목 파싱 종료
+              if (isParsingTitle) {
+                title = titleParts.join(' ').trim();
+                titleParts = [];
+                isParsingTitle = false;
+              }
+              
+              // 이전 Scene 저장
+              if (currentScene) {
+                scenes.push(currentScene);
+              }
+              const sceneNumber = parseInt(sceneMatch[1] || sceneMatch[2] || '0');
+              currentScene = {
+                number: sceneNumber,
+                content: ''
+              };
+              isInScene = true;
+              
+              // Scene 제목 뒤의 내용도 포함
+              const sceneContent = line.replace(/\[Scene\s*\d+\]|Scene\s*\d+[:\s]*/i, '').trim();
+              if (sceneContent) {
+                currentScene.content = sceneContent;
+              }
+              continue;
+            }
+            
+            // 제목 파싱
+            if (line.startsWith('제목:')) {
+              isParsingTitle = true;
+              const titleContent = line.replace(/^제목(\(.*\))?:\s*/, '').trim();
+              if (titleContent) {
+                titleParts.push(titleContent);
+              }
+            } else if (isParsingTitle) {
+              // 제목이 여러 줄일 수 있음
+              // Scene이나 다른 섹션이 시작되면 제목 파싱 종료
+              if (line.trim() && !line.startsWith('[') && !line.startsWith('영상 길이') && !line.startsWith('Scene') && !line.match(/^Scene\s*\d+/i) && !line.startsWith('후속 제안')) {
+                titleParts.push(line.trim());
+              } else {
+                // 제목 파싱 종료
+                title = titleParts.join(' ').trim();
+                titleParts = [];
+                isParsingTitle = false;
+              }
+            }
+            
+            // 영상 길이 파싱
+            if (line.includes('영상 길이') || line.includes('영상길이') || line.includes('video_length') || line.includes('video length') || line.match(/^\d+\s*초/) || line.match(/^\d+\s*$/)) {
+              // 다양한 패턴으로 숫자 추출
+              const lengthMatch = line.match(/(\d+)\s*초/) || 
+                                  line.match(/video_length[:\s]*(\d+)/i) || 
+                                  line.match(/video\s*length[:\s]*(\d+)/i) ||
+                                  line.match(/영상\s*길이[:\s]*(\d+)/i) ||
+                                  line.match(/영상길이[:\s]*(\d+)/i) ||
+                                  line.match(/^(\d+)\s*$/);
+              if (lengthMatch) {
+                videoLength = lengthMatch[1]; // '초' 제거
+              }
+            }
+            
+            // 포스팅 글 섹션 시작
+            if (line.startsWith('✍️ 포스팅 글') || line.startsWith('✍️')) {
+              isParsingPostingText = true;
+              isParsingBgm = false;
+              isParsingTags = false;
+              postingTextParts = [];
+              continue;
+            }
+            
+            // BGM 섹션 시작
+            if (line.startsWith('🎵 추천 BGM:') || line.startsWith('🎵')) {
+              isParsingPostingText = false;
+              isParsingBgm = true;
+              isParsingTags = false;
+              const bgmContent = line.replace(/^🎵\s*(추천\s*BGM:?)?\s*/, '').trim();
+              if (bgmContent) {
+                bgmText = bgmContent;
+              }
+              continue;
+            }
+            
+            // 태그 섹션 시작 (해시태그로 시작하는 줄)
+            if (line.startsWith('#') && !isInScene) {
+              isParsingPostingText = false;
+              isParsingBgm = false;
+              isParsingTags = true;
+              const tagLine = line.trim();
+              const extractedTags = tagLine.match(/#[\w가-힣]+/g) || [];
+              const newTags = extractedTags.map(tag => tag.replace('#', ''));
+              tags.push(...newTags);
+              // 중복 제거
+              tags = [...new Set(tags)];
+              continue;
+            }
+            
+            // 포스팅 글 내용 수집
+            if (isParsingPostingText) {
+              if (line.trim() && !line.startsWith('🎵') && !line.startsWith('#')) {
+                postingTextParts.push(line.trim());
+              } else if (line.startsWith('🎵') || line.startsWith('#')) {
+                isParsingPostingText = false;
+                // BGM이나 태그 섹션으로 넘어감
+                if (line.startsWith('🎵')) {
+                  isParsingBgm = true;
+                  const bgmContent = line.replace(/^🎵\s*(추천\s*BGM:?)?\s*/, '').trim();
+                  if (bgmContent) {
+                    bgmText = bgmContent;
+                  }
+                } else if (line.startsWith('#')) {
+                  isParsingTags = true;
+                  const tagLine = line.trim();
+                  const extractedTags = tagLine.match(/#[\w가-힣]+/g) || [];
+                  const newTags = extractedTags.map(tag => tag.replace('#', ''));
+                  tags.push(...newTags);
+                  // 중복 제거
+                  tags = [...new Set(tags)];
+                }
+              }
+            }
+            
+            // BGM 내용 수집
+            if (isParsingBgm) {
+              if (line.trim() && !line.startsWith('#') && !line.startsWith('후속 제안')) {
+                if (bgmText) {
+                  bgmText += ' ' + line.trim();
+                } else {
+                  bgmText = line.trim();
+                }
+              } else if (line.startsWith('#') || line.startsWith('후속 제안')) {
+                isParsingBgm = false;
+                if (line.startsWith('#')) {
+                  isParsingTags = true;
+                  const tagLine = line.trim();
+                  const extractedTags = tagLine.match(/#[\w가-힣]+/g) || [];
+                  const newTags = extractedTags.map(tag => tag.replace('#', ''));
+                  tags.push(...newTags);
+                  // 중복 제거
+                  tags = [...new Set(tags)];
+                }
+              }
+            }
+            
+            // 태그 수집
+            if (isParsingTags) {
+              if (line.startsWith('#')) {
+                const tagLine = line.trim();
+                const extractedTags = tagLine.match(/#[\w가-힣]+/g) || [];
+                const newTags = extractedTags.map(tag => tag.replace('#', ''));
+                tags.push(...newTags);
+                // 중복 제거
+                tags = [...new Set(tags)];
+              } else if (line.startsWith('후속 제안') || line.trim() === '') {
+                isParsingTags = false;
+              }
+            }
+            
+            // Scene 내용 수집
+            if (isInScene && currentScene) {
+              // 씬5의 경우 포스팅 글, BGM, 태그를 분리
+              if (currentScene.number === 5) {
+                // 포스팅 글 섹션 시작
+                if (line.startsWith('✍️ 포스팅 글') || line.startsWith('✍️')) {
+                  isParsingPostingText = true;
+                  isParsingBgm = false;
+                  isParsingTags = false;
+                  postingTextParts = [];
+                  continue;
+                }
+                
+                // BGM 섹션 시작
+                if (line.startsWith('🎵 추천 BGM:') || line.startsWith('🎵')) {
+                  isParsingPostingText = false;
+                  isParsingBgm = true;
+                  isParsingTags = false;
+                  const bgmContent = line.replace(/^🎵\s*(추천\s*BGM:?)?\s*/, '').trim();
+                  if (bgmContent) {
+                    bgmText = bgmContent;
+                  }
+                  continue;
+                }
+                
+                // 태그 섹션 시작 (해시태그로 시작하는 줄)
+                if (line.startsWith('#')) {
+                  isParsingPostingText = false;
+                  isParsingBgm = false;
+                  isParsingTags = true;
+                  const tagLine = line.trim();
+                  const extractedTags = tagLine.match(/#[\w가-힣]+/g) || [];
+                  const newTags = extractedTags.map(tag => tag.replace('#', ''));
+                  tags.push(...newTags);
+                  // 중복 제거
+                  tags = [...new Set(tags)];
+                  continue;
+                }
+                
+                // 포스팅 글 내용 수집 (씬5 내부)
+                if (isParsingPostingText) {
+                  if (line.trim() && !line.startsWith('🎵') && !line.startsWith('#')) {
+                    postingTextParts.push(line.trim());
+                  } else if (line.startsWith('🎵') || line.startsWith('#')) {
+                    isParsingPostingText = false;
+                    if (line.startsWith('🎵')) {
+                      isParsingBgm = true;
+                      const bgmContent = line.replace(/^🎵\s*(추천\s*BGM:?)?\s*/, '').trim();
+                      if (bgmContent) {
+                        bgmText = bgmContent;
+                      }
+                    } else if (line.startsWith('#')) {
+                      isParsingTags = true;
+                      const tagLine = line.trim();
+                      const extractedTags = tagLine.match(/#[\w가-힣]+/g) || [];
+                      const newTags = extractedTags.map(tag => tag.replace('#', ''));
+                      tags.push(...newTags);
+                      // 중복 제거
+                      tags = [...new Set(tags)];
+                    }
+                  }
+                  continue;
+                }
+                
+                // BGM 내용 수집 (씬5 내부)
+                if (isParsingBgm) {
+                  if (line.trim() && !line.startsWith('#') && !line.startsWith('후속 제안')) {
+                    if (bgmText) {
+                      bgmText += ' ' + line.trim();
+                    } else {
+                      bgmText = line.trim();
+                    }
+                  } else if (line.startsWith('#') || line.startsWith('후속 제안')) {
+                    isParsingBgm = false;
+                    if (line.startsWith('#')) {
+                      isParsingTags = true;
+                      const tagLine = line.trim();
+                      const extractedTags = tagLine.match(/#[\w가-힣]+/g) || [];
+                      const newTags = extractedTags.map(tag => tag.replace('#', ''));
+                      tags.push(...newTags);
+                      // 중복 제거
+                      tags = [...new Set(tags)];
+                    }
+                  }
+                  continue;
+                }
+                
+                // 태그 수집 (씬5 내부)
+                if (isParsingTags) {
+                  if (line.startsWith('#')) {
+                    const tagLine = line.trim();
+                    const extractedTags = tagLine.match(/#[\w가-힣]+/g) || [];
+                    const newTags = extractedTags.map(tag => tag.replace('#', ''));
+                    tags.push(...newTags);
+                    // 중복 제거
+                    tags = [...new Set(tags)];
+                  } else if (line.startsWith('후속 제안') || line.trim() === '') {
+                    isParsingTags = false;
+                  }
+                  continue;
+                }
+              }
+              
+              // Scene 내용 수집 (다음 Scene이나 섹션이 시작되기 전까지)
+              // 씬5의 경우 포스팅 글, BGM, 태그 관련 줄은 제외
+              if (line.trim() && !line.startsWith('[') && !line.match(/^Scene\s*\d+/i) && !line.startsWith('후속 제안') && !line.startsWith('🔎') && !line.startsWith('✍️') && !line.startsWith('🎵') && !line.startsWith('#')) {
+                if (currentScene.content) {
+                  currentScene.content += '\n' + line.trim();
+                } else {
+                  currentScene.content = line.trim();
+                }
+              } else if (line.startsWith('[') || line.match(/^Scene\s*\d+/i) || line.startsWith('후속 제안')) {
+                // 다음 Scene 시작 또는 섹션 종료
+                // 씬5인 경우 포스팅 글, BGM, 태그 정보를 씬5에 저장
+                if (currentScene.number === 5) {
+                  const scene5PostingText = postingTextParts.join('\n').trim();
+                  if (scene5PostingText) {
+                    currentScene.postingText = scene5PostingText;
+                  }
+                  if (bgmText) {
+                    currentScene.bgm = bgmText;
+                  }
+                  if (tags.length > 0) {
+                    currentScene.tags = [...new Set(tags)];
+                  }
+                  // 씬5 전용 변수 초기화
+                  postingTextParts = [];
+                  bgmText = '';
+                  tags = [];
+                  isParsingPostingText = false;
+                  isParsingBgm = false;
+                  isParsingTags = false;
+                }
+                scenes.push(currentScene);
+                currentScene = null;
+                isInScene = false;
+              }
+            }
+          }
+          
+          // 마지막 Scene 저장
+          if (currentScene) {
+            // 씬5인 경우 포스팅 글, BGM, 태그 정보를 씬5에 저장
+            if (currentScene.number === 5) {
+              const scene5PostingText = postingTextParts.join('\n').trim();
+              if (scene5PostingText) {
+                currentScene.postingText = scene5PostingText;
+              }
+              if (bgmText) {
+                currentScene.bgm = bgmText;
+              }
+              if (tags.length > 0) {
+                currentScene.tags = [...new Set(tags)];
+              }
+            }
+            scenes.push(currentScene);
+          }
+          
+          // 제목이 아직 파싱되지 않았으면 마지막으로 처리
+          if (isParsingTitle && titleParts.length > 0) {
+            title = titleParts.join(' ').trim();
+          }
+          
+          // 씬5 이후의 씬들에 포스팅 글, BGM, 태그 정보 추가 (씬5에서 분리되지 않은 경우)
+          const postingText = postingTextParts.join('\n').trim();
+          scenes.forEach(scene => {
+            if (scene.number > 5) {
+              if (postingText && !scene.postingText) {
+                scene.postingText = postingText;
+              }
+              if (bgmText && !scene.bgm) {
+                scene.bgm = bgmText;
+              }
+              if (tags.length > 0 && !scene.tags) {
+                scene.tags = [...new Set(tags)];
+              }
+            }
+          });
+        }
+        
+        const payload = {
+          format: format || '',
+          category: category || '',
+          keyword: keyword || '',
+          title: title,
+          videoLength: videoLength,
+          scenes: scenes,
+          content: content || '', // 원본 content도 함께 전송
+          timestamp: new Date().toISOString(),
+        };
+
+        await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        
+        console.log('유튜브 숏폼 콘텐츠 webhook 전송 완료', payload);
+        alert('콘텐츠가 성공적으로 전송되었습니다.');
+      } catch (error) {
+        console.error('웹훅 전송 실패:', error);
+        alert('콘텐츠 전송 중 오류가 발생했습니다.');
+      }
+    } else {
+      // 기존 다운로드 로직 (다른 포맷)
+      generatedImageUrls.forEach((url, index) => {
+          // FIX: Explicitly cast the result of Object.entries to fix type inference issues where `status` is treated as `unknown`.
+          const entry = (Object.entries(imageStatuses) as [string, ImageStatus][]).find(([, status]) => status.url === url);
+          const prompt = entry ? entry[0] : `image_${index + 1}`;
+          const filename = prompt.substring(0, 40).replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.jpeg';
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+      });
+    }
+  }, [generatedImageUrls, imageStatuses, format, category, keyword, content]);
   
   const handleCopyToClipboardForSpreadsheet = useCallback(async () => {
     if (!content) return;
@@ -526,34 +925,6 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     // 제목을 8~10글자 단위로 줄바꿈 처리 (최대 30자)
     const formattedTitle = formatTitleWithLineBreaks(title, 10, 30);
 
-    const dataRow: string[] = [
-        formattedTitle,
-        category || '',
-        hashtags[0] || '',
-        hashtags[1] || '',
-        hashtags[2] || '',
-        getFilename(coverPrompt),
-        '' // Empty column separator after cover section
-    ];
-
-    for (let i = 0; i < 10; i++) {
-        const card = cards[i];
-        if (card) {
-            dataRow.push(card.subtitle);      // 카드 소제목
-            dataRow.push(card.body);          // 카드 본문
-            dataRow.push(getFilename(card.prompt)); // 카드 썸네일
-            dataRow.push(card.source);        // 카드 출처
-        } else {
-            // Fill empty for non-existent cards
-            dataRow.push('', '', '', ''); 
-        }
-
-        // Add empty separator column after each card block, except for the last one
-        if (i < 9) {
-            dataRow.push('');
-        }
-    }
-    
     // 참고자료 섹션 추출
     const sourcesMatch = content.match(/🔎 참고자료\n([\s\S]*?)(?=\n후속 제안:|$)/);
     if(sourcesMatch && sourcesMatch[1]) {
@@ -562,26 +933,49 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         sourcesText = sources.map(s => `${s.title} (${s.uri})`).join('\n');
     }
 
-    // Column 58 (index 57) for postingText
-    const postingTextColIndex = 57;
-    let padding = postingTextColIndex - dataRow.length;
-    if (padding > 0) dataRow.push(...Array(padding).fill(''));
-    dataRow.push(postingText);
+    // 요청된 컬럼 구조에 맞게 데이터 구성
+    const dataRow: string[] = [
+        formattedTitle,                    // 1. 타이틀
+        category || '',                     // 2. 카테고리
+        hashtags[0] || '',                 // 3. 키워드1
+        hashtags[1] || '',                 // 4. 키워드2
+        hashtags[2] || '',                 // 5. 키워드3
+        getFilename(coverPrompt),          // 6. 표지 썸네일
+        ''                                 // 7. 빈 컬럼
+    ];
 
-    // Column 59 (index 58) for keywords
-    dataRow.push(keywords);
-
-    // Column 60 (index 59) for sourceInfo
-    const sourceInfoColIndex = 59;
-    padding = sourceInfoColIndex - dataRow.length;
-    if (padding > 0) dataRow.push(...Array(padding).fill(''));
-    dataRow.push(sourcesText);
-
-    // Column 62 (index 61) for full content
-    const fullContentColIndex = 61;
-    padding = fullContentColIndex - dataRow.length;
-    if (padding > 0) dataRow.push(...Array(padding).fill(''));
-    dataRow.push(content);
+    // 카드1~10 데이터 추가 (각 카드마다: 소제목, 본문, 썸네일, 출처, 빈 컬럼)
+    for (let i = 0; i < 10; i++) {
+        const card = cards[i];
+        if (card) {
+            dataRow.push(card.subtitle);                    // 카드 소제목
+            dataRow.push(card.body);                        // 카드 본문
+            dataRow.push(getFilename(card.prompt));         // 카드 썸네일
+            dataRow.push(card.source);                      // 카드 출처
+        } else {
+            // 카드가 없으면 빈 값으로 채움
+            dataRow.push('', '', '', '');
+        }
+        
+        // 각 카드 블록 뒤에 빈 컬럼 추가 (마지막 카드 제외)
+        if (i < 9) {
+            dataRow.push('');
+        }
+    }
+    
+    // 컨텐츠를 절반으로 나누기
+    const contentLength = content.length;
+    const halfLength = Math.ceil(contentLength / 2);
+    const fullContent1 = content.substring(0, halfLength);
+    const fullContent2 = content.substring(halfLength);
+    
+    // 포스팅 글, 핵심 키워드, 컨텐츠 출처, 빈 컬럼, 컨텐츠 생성 내용 전체 (절반씩 2개)
+    dataRow.push(postingText);             // 포스팅 글
+    dataRow.push(keywords);                // 핵심 키워드
+    dataRow.push(sourcesText);             // 컨텐츠 출처
+    dataRow.push('');                      // 빈 컬럼
+    dataRow.push(fullContent1);            // 컨텐츠 생성 내용 전체 (첫 번째 절반)
+    dataRow.push(fullContent2);            // 컨텐츠 생성 내용 전체 (두 번째 절반)
 
     const escapeTsvField = (field: string = '') => {
       const needsQuoting = field.includes('\t') || field.includes('\n') || field.includes('"');
@@ -592,16 +986,19 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     };
     
     let tsvContent = '';
+    
+    // 네이버 블로그 포맷용 변수 선언 (웹훅 전송에서도 사용)
+    let blogTitle = '';
+    let intro = '';
+    let summary = '';
+    let conclusion = '';
+    let references = '';
+    let tags = '';
+    let allImageUrls: string[] = [];
 
     // 네이버 블로그 포맷 처리
     if (format === 'NAVER-BLOG/BAND') {
-      let blogTitle = '';
-      let intro = '';
       const sections: BlogSectionData[] = [];
-      let summary = '';
-      let conclusion = '';
-      let references = '';
-      let tags = '';
       
       const blogLines = cleanedContent.split('\n');
       let currentSection: BlogSectionData | null = null;
@@ -770,7 +1167,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       pushSection();
       
       // 모든 이미지 프롬프트에서 S3 URL 수집 (cleanedContent에서 직접 추출)
-      const allImageUrls: string[] = [];
+      allImageUrls = [];
       const imagePromptLines = cleanedContent.split('\n').filter(line => line.startsWith('📸 이미지 프롬프트:'));
       
       imagePromptLines.forEach(line => {
@@ -786,16 +1183,23 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       // 참고자료와 태그를 하나의 데이터열에 합치기
       const referencesAndTags = [references, tags].filter(Boolean).join('\n\n');
       
-      // [카테고리]-[제목]-[서론]-[컨텐츠내용전체]-[참고자료및태그]-[핵심요약]-[결론]-[이미지1]-[이미지2]-[이미지3]...
+      // 컨텐츠를 절반으로 나누기
+      const contentLength = content.length;
+      const halfLength = Math.ceil(contentLength / 2);
+      const fullContent1 = content.substring(0, halfLength);
+      const fullContent2 = content.substring(halfLength);
+      
+      // [카테고리]-[제목]-[서론]-[컨텐츠내용전체1]-[컨텐츠내용전체2]-[참고자료및태그]-[핵심요약]-[결론]-[이미지1]-[이미지2]-[이미지3]...
       const blogDataRow: string[] = [
         category || '',                      // 1. 카테고리
         blogTitle,                           // 2. 제목
         intro,                               // 3. 서론
-        content,                             // 4. 컨텐츠내용 전체
-        referencesAndTags,                   // 5. 참고자료 및 태그
-        summary,                             // 6. 핵심요약
-        conclusion,                          // 7. 결론
-        ...allImageUrls                      // 8~N. 이미지1,2,3...
+        fullContent1,                        // 4. 컨텐츠내용 전체 (첫 번째 절반)
+        fullContent2,                        // 5. 컨텐츠내용 전체 (두 번째 절반)
+        referencesAndTags,                   // 6. 참고자료 및 태그
+        summary,                             // 7. 핵심요약
+        conclusion,                          // 8. 결론
+        ...allImageUrls                      // 9~N. 이미지1,2,3...
       ];
       
       tsvContent = blogDataRow.map(escapeTsvField).join('\t');
@@ -809,7 +1213,114 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       setIsCsvCopied(true);
       setTimeout(() => setIsCsvCopied(false), 2000);
     }
-}, [content, imageStatuses, category, sources, format]);
+
+    // 웹훅으로 데이터 전송 - 컬럼별로 나눠서 전송
+    try {
+      // 포맷별로 다른 웹훅 URL 사용
+      const webhookUrl = format === 'NAVER-BLOG/BAND' 
+        ? 'https://teeshot.app.n8n.cloud/webhook/7fb31582-4fc2-47cd-8fbc-c14478443446'  // 네이버 블로그 포맷용 URL
+        : 'https://teeshot.app.n8n.cloud/webhook/a1053b39-6daa-4553-88d3-e567e051ceda'; // 인스타그램 카드 포맷용 URL (다른 URL로 변경 필요)
+      
+      let tsvData: Record<string, any> = {};
+      
+      // 네이버 블로그 포맷 처리
+      if (format === 'NAVER-BLOG/BAND') {
+        // 참고자료와 태그를 하나의 데이터열에 합치기
+        const referencesAndTags = [references, tags].filter(Boolean).join('\n\n');
+        
+        // 컨텐츠를 절반으로 나누기
+        const contentLength = content.length;
+        const halfLength = Math.ceil(contentLength / 2);
+        const fullContent1 = content.substring(0, halfLength);
+        const fullContent2 = content.substring(halfLength);
+        
+        // 네이버 블로그 포맷 컬럼별 데이터 구성
+        tsvData = {
+          category: category || '',
+          title: blogTitle,
+          intro: intro,
+          fullContent1: fullContent1,
+          fullContent2: fullContent2,
+          referencesAndTags: referencesAndTags,
+          summary: summary,
+          conclusion: conclusion,
+          images: allImageUrls
+        };
+      } else {
+        // 인스타그램 카드 포맷 컬럼별 데이터 구성
+        const cardsData: Record<string, any>[] = [];
+        for (let i = 0; i < 10; i++) {
+          const card = cards[i];
+          if (card) {
+            cardsData.push({
+              subtitle: card.subtitle,
+              body: card.body,
+              thumbnail: getFilename(card.prompt),
+              source: card.source
+            });
+          } else {
+            cardsData.push({
+              subtitle: '',
+              body: '',
+              thumbnail: '',
+              source: ''
+            });
+          }
+        }
+        
+        // 컨텐츠를 절반으로 나누기
+        const contentLength = content.length;
+        const halfLength = Math.ceil(contentLength / 2);
+        const fullContent1 = content.substring(0, halfLength);
+        const fullContent2 = content.substring(halfLength);
+        
+        tsvData = {
+          title: formattedTitle,
+          category: category || '',
+          keyword1: hashtags[0] || '',
+          keyword2: hashtags[1] || '',
+          keyword3: hashtags[2] || '',
+          coverThumbnail: getFilename(coverPrompt),
+          cards: cardsData,
+          postingText: postingText,
+          coreKeywords: keywords,
+          contentSources: sourcesText,
+          fullContent1: fullContent1,
+          fullContent2: fullContent2
+        };
+      }
+      
+      // YYYYMMDDHHMM 형식의 ID 생성
+      const generateId = (): string => {
+        const now = new Date();
+        const year = now.getFullYear().toString();
+        const month = (now.getMonth() + 1).toString().padStart(2, '0');
+        const day = now.getDate().toString().padStart(2, '0');
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        return `${year}${month}${day}${hours}${minutes}`;
+      };
+
+      const payload = {
+        ...tsvData,
+        id: generateId(),
+        format: format || '',
+        keyword: keyword || '',
+        timestamp: new Date().toISOString(),
+      };
+
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      console.error('웹훅 전송 실패:', error);
+      // 웹훅 전송 실패해도 사용자에게는 알리지 않음 (복사 기능은 정상 동작)
+    }
+}, [content, imageStatuses, category, sources, format, keyword]);
 
 
   const renderedContent = useMemo(() => {
@@ -1895,7 +2406,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                     {isBatchGenerating ? '생성 중...' : `이미지 일괄 생성 (${imagePrompts.length})`}
                 </button>
             )}
-            {generatedImageUrls.length > 0 && (
+            {format === 'YOUTUBE-SHORTFORM' ? (
+                 <button onClick={handleDownloadAll} className="flex items-center text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-4 rounded-md transition-colors">
+                    콘텐츠 전송
+                 </button>
+            ) : generatedImageUrls.length > 0 && (
                  <button onClick={handleDownloadAll} className="flex items-center text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-4 rounded-md transition-colors">
                     {`생성된 이미지 다운로드 (${generatedImageUrls.length})`}
                  </button>
