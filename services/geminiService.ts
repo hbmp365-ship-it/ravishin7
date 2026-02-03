@@ -172,9 +172,20 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
     userPrompt += `카테고리: ${input.category}\n`;
     if (input.keyword && input.keyword.trim()) {
       userPrompt += `키워드/주제: ${input.keyword}\n`;
+      userPrompt += `🚨 중요: 위 키워드/주제를 반드시 중심으로 컨텐츠를 생성하세요. 키워드/주제의 핵심 내용을 적극적으로 반영하고, 이 주제에서 벗어나지 않도록 주의하세요.\n`;
     }
-    if (input.userText) {
-      userPrompt += `user_text: ${input.userText}\n`;
+    if (input.userText && input.userText.trim()) {
+      userPrompt += `\n[참고 텍스트]\n`;
+      userPrompt += `${input.userText}\n`;
+      userPrompt += `\n🚨🚨🚨 참고 텍스트 활용 규칙 (최우선) 🚨🚨🚨\n`;
+      userPrompt += `- 위 참고 텍스트의 내용을 적극적으로 활용하여 컨텐츠를 생성하세요.\n`;
+      userPrompt += `- 참고 텍스트의 핵심 정보, 데이터, 사실, 통계, 예시 등을 정확히 반영하세요.\n`;
+      userPrompt += `- 참고 텍스트의 내용을 바탕으로 구체적이고 정확한 정보를 제공하세요.\n`;
+      userPrompt += `- 참고 텍스트에 없는 내용을 임의로 추가하지 마세요.\n`;
+      if (input.keyword && input.keyword.trim()) {
+        userPrompt += `- 키워드/주제와 참고 텍스트를 함께 고려하여 일관성 있는 컨텐츠를 생성하세요.\n`;
+      }
+      userPrompt += `\n`;
     }
   }
   

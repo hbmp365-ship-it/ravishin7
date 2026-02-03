@@ -197,7 +197,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
             value={prompt} 
             onChange={(e) => setPrompt(e.target.value)} 
             className={`${commonInputClass} h-24 resize-none`} 
-            placeholder="생성하고 싶은 이미지에 대해 자세히 설명해주세요. 예: a minimal silhouette of a golfer at sunset, natural light" 
+            placeholder="생성하고 싶은 이미지에 대해 자세히 설명해주세요. 예: a minimal silhouette of an Asian golfer at sunset, natural light, no text, no logo" 
             required 
             />
         </div>
