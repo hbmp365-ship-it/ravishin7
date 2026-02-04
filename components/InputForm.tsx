@@ -102,7 +102,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
     
     const userInput: UserInput = {
       isGolfRelated,
-      category: currentCategory === '직접 입력' ? customCategory : currentCategory,
+      category: format === 'INSTAGRAM-CARD' ? '데일리 뉴스' : (currentCategory === '직접 입력' ? customCategory : currentCategory),
       format,
       keyword: isBannerFormat ? '' : keyword,
       userText: isBannerFormat ? '' : userText,
@@ -288,7 +288,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
         </div>
       )}
       
-      {isGolfRelated && format !== 'NAVER-BLOG/BAND' && format !== 'ETC-BANNER' && (
+      {isGolfRelated && format !== 'NAVER-BLOG/BAND' && format !== 'ETC-BANNER' && format !== 'INSTAGRAM-CARD' && (
         <div>
           <div className="flex items-center mb-1">
               <label htmlFor="category" className={commonLabelClass}>카테고리</label>

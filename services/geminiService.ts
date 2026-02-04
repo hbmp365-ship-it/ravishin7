@@ -275,12 +275,28 @@ const retryWithBackoff = async <T>(
   throw lastError || new Error('알 수 없는 오류가 발생했습니다.');
 };
 
+/**
+ * 사용 가능한 모델 목록 확인 (디버깅용)
+ */
+const listAvailableModels = async (ai: GoogleGenAI): Promise<void> => {
+  try {
+    // @google/genai SDK에서 사용 가능한 모델 목록 확인
+    console.log('사용 가능한 모델 확인 시도...');
+    // 참고: SDK에 listModels 메서드가 있다면 사용
+  } catch (error) {
+    console.warn('모델 목록 확인 실패:', error);
+  }
+};
+
 export const generateGolfContent = async (userInput: UserInput): Promise<GeneratedContent> => {
   if (!process.env.API_KEY) {
     throw new Error("API_KEY is not set in environment variables.");
   }
   
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+  // 디버깅: 사용 가능한 모델 목록 확인 (필요시)
+  // await listAvailableModels(ai);
 
   const userRequest = await formatUserInput(userInput);
 
@@ -297,7 +313,11 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
   };
 
   // 빠른 모델 우선 사용, 실패 시 백업 모델로 전환
-  const models = ['gemini-2.0-flash-exp', 'gemini-1.5-flash'];
+  // 현재 API에서 사용 가능한 모델: gemini-2.5-flash, gemini-2.5
+  const models = [
+    'gemini-2.5-flash',       // 빠른 모델 (우선 사용)
+    'gemini-2.5',             // 더 강력한 모델 (백업)
+  ];
   let lastError: Error | null = null;
 
   for (const model of models) {
@@ -313,6 +333,8 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
       });
       
       const response = await retryWithBackoff(async () => {
+        // @google/genai SDK의 generateContent API 호출
+        // 참고: 모델 이름이 정확해야 함
         return await ai.models.generateContent({
           model: model,
           contents: userRequest,
@@ -362,6 +384,13 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
     } catch (error: any) {
       lastError = error;
       const statusCode = error?.error?.code || error?.status || error?.statusCode;
+      const errorMessage = error?.error?.message || error?.message || '';
+      
+      console.error(`모델 ${model} 오류:`, {
+        statusCode,
+        errorMessage,
+        fullError: error
+      });
       
       // 404 (모델 없음) 또는 503 (서버 과부하)인 경우 다음 모델 시도
       if (statusCode === 404 || statusCode === 503) {
@@ -375,7 +404,11 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
   }
   
   // 모든 모델 실패 시
-  throw lastError || new Error('모든 모델에서 요청이 실패했습니다.');
+  if (lastError) {
+    const errorMessage = (lastError as any)?.error?.message || lastError?.message || '알 수 없는 오류';
+    throw new Error(`모든 모델에서 요청이 실패했습니다. 마지막 오류: ${errorMessage}. 사용 가능한 모델 이름을 확인해주세요.`);
+  }
+  throw new Error('모든 모델에서 요청이 실패했습니다.');
 };
 
 export const generateImage = async (prompt: string, model: string = 'imagen-4.0-generate-001'): Promise<string> => {

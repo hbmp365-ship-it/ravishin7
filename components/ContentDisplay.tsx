@@ -138,6 +138,43 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
 
   const imagePrompts = useMemo(() => {
     if (!content) return [];
+    
+    // 인스타그램 카드 포맷인지 확인 ([Card 숫자] 패턴이 있는지)
+    const isInstagramCard = /\[Card\s*\d+\]/.test(content);
+    
+    // 인스타그램 카드 포맷의 경우 각 카드마다 프롬프트를 모두 추출 (표지 포함)
+    if (isInstagramCard) {
+      const lines = content.split('\n');
+      const prompts: string[] = [];
+      let currentCardIndex = -1;
+      let hasSeenFirstCard = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // 카드 시작 감지
+        const cardMatch = line.match(/\[Card\s*(\d+)\]/);
+        if (cardMatch) {
+          currentCardIndex = parseInt(cardMatch[1], 10);
+          hasSeenFirstCard = true;
+        }
+        
+        // 이미지 프롬프트 추출
+        if (line.startsWith('📸 이미지 프롬프트:')) {
+          const prompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
+          if (prompt) {
+            // 표지 이미지 프롬프트 (첫 번째 카드 이전) 또는 카드 내부 프롬프트 모두 포함
+            if (!hasSeenFirstCard || currentCardIndex > 0) {
+              prompts.push(prompt);
+            }
+          }
+        }
+      }
+      
+      return prompts;
+    }
+    
+    // 다른 포맷의 경우 기존 로직 유지 (중복 제거)
     const uniquePrompts = new Set(content.split('\n')
       .filter(line => line.startsWith('📸 이미지 프롬프트:'))
       .map(line => line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim()));
@@ -934,9 +971,10 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     }
 
     // 요청된 컬럼 구조에 맞게 데이터 구성
+    // 인스타그램 카드 포맷의 경우 카테고리를 '데일리 뉴스'로 통일
     const dataRow: string[] = [
         formattedTitle,                    // 1. 타이틀
-        category || '',                     // 2. 카테고리
+        '데일리 뉴스',                      // 2. 카테고리 (인스타그램 카드 포맷은 항상 '데일리 뉴스')
         hashtags[0] || '',                 // 3. 키워드1
         hashtags[1] || '',                 // 4. 키워드2
         hashtags[2] || '',                 // 5. 키워드3
@@ -1276,7 +1314,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         
         tsvData = {
           title: formattedTitle,
-          category: category || '',
+          category: '데일리 뉴스',  // 인스타그램 카드 포맷은 항상 '데일리 뉴스'
           keyword1: hashtags[0] || '',
           keyword2: hashtags[1] || '',
           keyword3: hashtags[2] || '',
@@ -1914,6 +1952,15 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
           inCard = false;
           inTocSection = true;
         }
+      } else if (line.startsWith('카테고리:')) {
+        // 인스타그램 카드 포맷에서 카테고리 라인은 표시하지 않음
+        if (isInstagramCardFormat) {
+          return;
+        }
+        pushTitle();
+        pushCard();
+        inCard = false;
+        elements.push(<p key={key} className="text-gray-600 mb-4">{line}</p>);
       } else if (line.startsWith('핵심 메시지') || line.startsWith('카드 수')) {
         pushTitle();
         pushCard();
