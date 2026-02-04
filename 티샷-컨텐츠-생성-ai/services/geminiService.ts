@@ -23,6 +23,9 @@ const formatUserInput = (input: UserInput): string => {
   }
   if (input.format === 'NAVER-BLOG/BAND' || input.format === 'ETC-BANNER') {
     userPrompt += `text_length: ${input.blogLength}\n`;
+    if (input.format === 'NAVER-BLOG/BAND') {
+      userPrompt += `section_count: ${input.sectionCount}\n`;
+    }
   }
   if (input.format === 'YOUTUBE-SHORTFORM') {
     userPrompt += `video_length: ${input.videoLength}\n`;

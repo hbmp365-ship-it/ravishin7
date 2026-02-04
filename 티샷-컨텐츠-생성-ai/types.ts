@@ -8,7 +8,9 @@ export interface UserInput {
   blogLength: number;
   videoLength: number;
   sceneCount: number;
+  sectionCount: number;
   tone: string;
+  isGolfRelated?: boolean;
 }
 
 export interface GeneratedContent {

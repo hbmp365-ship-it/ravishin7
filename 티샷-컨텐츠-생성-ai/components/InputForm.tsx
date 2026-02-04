@@ -41,6 +41,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
   const [userText, setUserText] = useState('');
   const [cardCount, setCardCount] = useState(6);
   const [blogLength, setBlogLength] = useState(1000);
+  const [sectionCount, setSectionCount] = useState(3);
   const [videoLength, setVideoLength] = useState(30);
   const [sceneCount, setSceneCount] = useState(6);
   const [tone, setTone] = useState(TONES[0]);
@@ -90,6 +91,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       userText,
       cardCount,
       blogLength,
+      sectionCount,
       videoLength,
       sceneCount,
       tone,
@@ -322,6 +324,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       )}
 
       {format === 'NAVER-BLOG/BAND' && (
+        <>
          <div>
           <label htmlFor="blogLength" className={`${commonLabelClass} mb-2`}>
             텍스트 분량
@@ -348,6 +351,36 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
             <span>4000자</span>
           </div>
         </div>
+        
+        <div>
+          <label htmlFor="sectionCount" className={`${commonLabelClass} mb-2`}>
+            본문 섹션 수
+            <span className="ml-2 text-lg font-bold text-[#1FA77A]">{sectionCount}개</span>
+          </label>
+          <input
+            type="range"
+            id="sectionCount"
+            min="1"
+            max="10"
+            step="1"
+            value={sectionCount}
+            onChange={(e) => setSectionCount(parseInt(e.target.value))}
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#1FA77A] hover:accent-[#178860] transition-colors"
+          />
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <span>1개</span>
+            <span>2개</span>
+            <span>3개</span>
+            <span>4개</span>
+            <span>5개</span>
+            <span>6개</span>
+            <span>7개</span>
+            <span>8개</span>
+            <span>9개</span>
+            <span>10개</span>
+          </div>
+        </div>
+        </>
       )}
       
        <div>
