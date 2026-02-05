@@ -95,6 +95,8 @@ const App: React.FC = () => {
               category={lastUserInput?.category}
               format={lastUserInput?.format}
               keyword={lastUserInput?.keyword}
+              cutCount={lastUserInput?.cutCount}
+              cutTexts={lastUserInput?.cutTexts}
             />
           </div>
         </div>

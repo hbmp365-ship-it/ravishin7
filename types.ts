@@ -21,6 +21,9 @@ export interface UserInput {
   imageGeneratorTool?: string;
   alignment?: string;
   isGolfRelated?: boolean;
+  cutCount?: number;
+  cutTexts?: string[];
+  bannerContentType?: '일반' | '인포그래픽';
 }
 
 export interface GeneratedContent {

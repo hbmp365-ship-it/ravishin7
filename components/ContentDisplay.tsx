@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { CopyIcon, CheckIcon, SpreadsheetIcon } from './icons';
 import { generateImage } from '../services/geminiService';
 import { uploadImageToS3 } from '../services/s3Service';
@@ -15,6 +15,8 @@ interface ContentDisplayProps {
   category?: string;
   format?: string;
   keyword?: string;
+  cutCount?: number;
+  cutTexts?: string[];
 }
 
 // FIX: Define a specific type for image status to help with type inference.
@@ -128,7 +130,7 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
 };
 
 
-export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggestions, sources, isLoading, error, onSwitchToImageTab, onSuggestionClick, category, format, keyword }) => {
+export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggestions, sources, isLoading, error, onSwitchToImageTab, onSuggestionClick, category, format, keyword, cutCount, cutTexts }) => {
   const [copiedAll, setCopiedAll] = useState(false);
   const [isCsvCopied, setIsCsvCopied] = useState(false);
   const [imageStatuses, setImageStatuses] = useState<Record<string, ImageStatus>>({});
@@ -138,6 +140,38 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
 
   const imagePrompts = useMemo(() => {
     if (!content) return [];
+    
+    // 유튜브 숏폼 포맷인 경우 컷 수만큼 이미지 프롬프트 추출
+    if (format === 'YOUTUBE-SHORTFORM' && cutCount) {
+      const lines = content.split('\n');
+      const prompts: string[] = [];
+      let currentCutIndex = -1;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // 컷/씬 시작 감지
+        const cutMatch = line.match(/\[(?:Cut|Scene|컷)\s*(\d+)\]/i);
+        if (cutMatch) {
+          currentCutIndex = parseInt(cutMatch[1], 10);
+        }
+        
+        // 이미지 프롬프트 추출
+        if (line.startsWith('📸 이미지 프롬프트:') || line.startsWith('🎬 이미지 프롬프트:')) {
+          const prompt = line.replace(/📸 이미지 프롬프트:|🎬 이미지 프롬프트:/, '').trim();
+          if (prompt && currentCutIndex > 0 && currentCutIndex <= cutCount) {
+            prompts.push(prompt);
+          }
+        }
+      }
+      
+      // 컷 수만큼 프롬프트가 없으면 컷 수만큼 빈 배열 반환 (나중에 자동 생성)
+      if (prompts.length < cutCount) {
+        return Array(cutCount).fill('').map((_, index) => prompts[index] || '');
+      }
+      
+      return prompts.slice(0, cutCount);
+    }
     
     // 인스타그램 카드 포맷인지 확인 ([Card 숫자] 패턴이 있는지)
     const isInstagramCard = /\[Card\s*\d+\]/.test(content);
@@ -179,7 +213,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       .filter(line => line.startsWith('📸 이미지 프롬프트:'))
       .map(line => line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim()));
     return Array.from(uniquePrompts);
-  }, [content]);
+  }, [content, format, cutCount]);
 
   const generatedImageUrls = useMemo(() => {
     // FIX: Explicitly cast the result of Object.values to fix type inference issues where `s` is treated as `unknown`.
@@ -224,7 +258,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         continue;
       }
       if (inPromptSection) {
-        if (line.startsWith('💡 디자인 가이드라인') || line.startsWith('후속 제안') || line.trim() === '') {
+        // 인포그래픽 디자인 가이드라인 또는 일반 디자인 가이드라인, 후속 제안으로 종료
+        if (line.startsWith('💡 인포그래픽 디자인 가이드라인') || 
+            line.startsWith('💡 디자인 가이드라인') || 
+            line.startsWith('후속 제안') || 
+            line.startsWith('**인포그래픽 포맷에서는 후속 제안을 생략합니다.**') ||
+            (line.trim() === '' && promptLines.length > 0)) {
           break;
         }
         if (line.trim() && !line.startsWith('🎨')) {
@@ -241,14 +280,103 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
   }, [isInstagramCardFormat, isNaverBlogFormat]);
 
   const handleCopyAll = async () => {
-    const success = await copyToClipboard(content);
+    let textToCopy = content;
+    
+    // 유튜브 숏폼 포맷일 때는 영상 프롬프트와 오디오/대본만 추출
+    if (format === 'YOUTUBE-SHORTFORM' && content) {
+      const lines = content.split('\n');
+      let inVideoPrompt = false;
+      let inAudioScript = false;
+      let promptLines: string[] = [];
+      
+      for (const line of lines) {
+        // 영상 프롬프트 시작
+        if (line.startsWith('🎬 영상 프롬프트:')) {
+          inVideoPrompt = true;
+          promptLines.push(line);
+          continue;
+        }
+        
+        // 오디오/대본 섹션 시작 (별도 섹션인 경우)
+        if (line.startsWith('🎙️ 오디오/대본:') || line.startsWith('🎙️ 오디오') || line.startsWith('🎙️ 대본')) {
+          inAudioScript = true;
+          promptLines.push(line);
+          continue;
+        }
+        
+        // 영상 프롬프트 또는 오디오/대본 섹션 종료 조건
+        if ((inVideoPrompt || inAudioScript) && (
+          line.startsWith('영상 길이:') || 
+          line.startsWith('컷 수:') || 
+          line.startsWith('[Cut') || 
+          line.startsWith('**🚨 중요:') ||
+          line.startsWith('#') ||
+          line.startsWith('✍️ 포스팅 글') ||
+          line.startsWith('후속 제안') ||
+          line.startsWith('🎵 추천 BGM')
+        )) {
+          break;
+        }
+        
+        // 영상 프롬프트 또는 오디오/대본 내용 수집
+        if (inVideoPrompt || inAudioScript) {
+          promptLines.push(line);
+        }
+      }
+      
+      textToCopy = promptLines.join('\n').trim();
+    }
+    
+    const success = await copyToClipboard(textToCopy);
     if (success) {
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 2000);
     }
   };
 
+  // 인포그래픽 컨텐츠인지 확인
+  const isInfographicContent = useMemo(() => {
+    if (!content || format !== 'ETC-BANNER') return false;
+    return /📊 인포그래픽 컨텐츠 구조|📐 인포그래픽 디자인 컨셉|📝 인포그래픽 주요 내용/.test(content);
+  }, [content, format]);
+
   const handleCopyBannerPrompt = async () => {
+    // 인포그래픽 컨텐츠인 경우 "인포그래픽 주요 내용" 섹션만 복사
+    if (isInfographicContent && content) {
+      const lines = content.split('\n');
+      let inMainContentSection = false;
+      let mainContentLines: string[] = [];
+      
+      for (const line of lines) {
+        // "📝 인포그래픽 주요 내용" 섹션 시작
+        if (line.includes('📝 인포그래픽 주요 내용')) {
+          inMainContentSection = true;
+          mainContentLines.push(line);
+          continue;
+        }
+        
+        // "🎨 AI 이미지 생성 프롬프트" 섹션 시작 시 종료
+        if (line.startsWith('🎨 AI 이미지 생성 프롬프트')) {
+          break;
+        }
+        
+        // 주요 내용 섹션 내의 내용 수집
+        if (inMainContentSection) {
+          mainContentLines.push(line);
+        }
+      }
+      
+      const mainContent = mainContentLines.join('\n').trim();
+      
+      const success = await copyToClipboard(mainContent);
+      if (success) {
+        setBannerPromptCopied(true);
+        setTimeout(() => setBannerPromptCopied(false), 2000);
+      }
+      return;
+    }
+    
+    // 일반 배너/포스터인 경우 AI 이미지 생성 프롬프트만 복사
     if (!bannerImagePrompt) return;
     const success = await copyToClipboard(bannerImagePrompt);
     if (success) {
@@ -294,13 +422,41 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     
     setIsBannerImageGenerating(true);
     try {
-      await handleGenerateSingleImage(bannerImagePrompt);
+      // 배너/포스터 포맷은 항상 gemini-2.5-flash-image 모델 사용
+      setImageStatuses(prev => ({ ...prev, [bannerImagePrompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
+      try {
+        const base64Image = await generateImage(bannerImagePrompt, 'gemini-2.5-flash-image');
+        
+        // S3에 업로드하여 전체 URL 가져오기
+        let s3Url: string | null = null;
+        try {
+          s3Url = await uploadImageToS3(base64Image, bannerImagePrompt);
+        } catch (uploadErr) {
+          console.error('S3 업로드 실패:', uploadErr);
+        }
+        
+        setImageStatuses(prev => ({
+          ...prev,
+          [bannerImagePrompt]: {
+            url: `data:image/jpeg;base64,${base64Image}`,
+            s3Url: s3Url,
+            isLoading: false,
+            error: null
+          }
+        }));
+      } catch (e) {
+        console.error("배너 이미지 생성 실패:", e);
+        setImageStatuses(prev => ({
+          ...prev,
+          [bannerImagePrompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' }
+        }));
+      }
     } catch (error) {
       console.error('배너 이미지 생성 실패:', error);
     } finally {
       setIsBannerImageGenerating(false);
     }
-  }, [bannerImagePrompt, handleGenerateSingleImage]);
+  }, [bannerImagePrompt]);
 
   const handleGenerateAllImages = useCallback(async () => {
     if (!imagePrompts.length) return;
@@ -320,6 +476,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
 
     // 순차적으로 하나씩 처리 (병렬 처리 대신)
     for (const prompt of imagePrompts) {
+        // 빈 프롬프트는 건너뛰기
+        if (!prompt || !prompt.trim()) {
+            continue;
+        }
+        
         // 이미 생성된 이미지는 건너뛰기
         if (imageStatuses[prompt]?.url) {
             continue;
@@ -358,6 +519,17 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
 
     setIsBatchGenerating(false);
   }, [imagePrompts, imageStatuses]);
+  
+  // 유튜브 숏폼 포맷일 때 컨텐츠 생성 후 자동으로 이미지 생성
+  useEffect(() => {
+    if (format === 'YOUTUBE-SHORTFORM' && content && !isLoading && cutCount && cutCount > 0) {
+      // 컨텐츠에서 이미지 프롬프트가 추출되었고, 아직 생성되지 않은 이미지가 있으면 자동 생성
+      const hasUnGeneratedImages = imagePrompts.some(p => p && p.trim() && !imageStatuses[p]?.url);
+      if (hasUnGeneratedImages && !isBatchGenerating) {
+        handleGenerateAllImages();
+      }
+    }
+  }, [content, format, cutCount, imagePrompts, imageStatuses, isLoading, isBatchGenerating, handleGenerateAllImages]);
   
   const handleDownloadAll = useCallback(async () => {
     // 유튜브 숏폼 포맷인 경우 webhook으로 전송 (이미지 생성 없이 내용만 전송)
@@ -2332,7 +2504,35 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                 <div className="mt-4">
                   <ImagePrompt 
                     text={bannerImagePrompt} 
-                    onGenerate={handleGenerateSingleImage} 
+                    onGenerate={(prompt) => {
+                      // 배너/포스터 포맷은 항상 gemini-2.5-flash-image 모델 사용
+                      setImageStatuses(prev => ({ ...prev, [prompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
+                      generateImage(prompt, 'gemini-2.5-flash-image')
+                        .then(async (base64Image) => {
+                          let s3Url: string | null = null;
+                          try {
+                            s3Url = await uploadImageToS3(base64Image, prompt);
+                          } catch (uploadErr) {
+                            console.error('S3 업로드 실패:', uploadErr);
+                          }
+                          setImageStatuses(prev => ({
+                            ...prev,
+                            [prompt]: {
+                              url: `data:image/jpeg;base64,${base64Image}`,
+                              s3Url: s3Url,
+                              isLoading: false,
+                              error: null
+                            }
+                          }));
+                        })
+                        .catch((e) => {
+                          console.error("이미지 생성 실패:", e);
+                          setImageStatuses(prev => ({
+                            ...prev,
+                            [prompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' }
+                          }));
+                        });
+                    }}
                     onSwitchToImageTab={onSwitchToImageTab} 
                     status={bannerImageStatus} 
                   />
@@ -2443,21 +2643,17 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                     {isCsvCopied ? '복사 완료!' : '스프레드시트용 데이터 복사'}
                 </button>
             )}
-            {imagePrompts.length > 0 && (
+            {imagePrompts.length > 0 && format !== 'YOUTUBE-SHORTFORM' && (
                 <button 
                     onClick={handleGenerateAllImages} 
-                    disabled={isBatchGenerating} 
+                    disabled={isBatchGenerating}
                     className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-300 disabled:cursor-wait"
                 >
                     {isBatchGenerating && <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>}
                     {isBatchGenerating ? '생성 중...' : `이미지 일괄 생성 (${imagePrompts.length})`}
                 </button>
             )}
-            {format === 'YOUTUBE-SHORTFORM' ? (
-                 <button onClick={handleDownloadAll} className="flex items-center text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-4 rounded-md transition-colors">
-                    콘텐츠 전송
-                 </button>
-            ) : generatedImageUrls.length > 0 && (
+            {format !== 'YOUTUBE-SHORTFORM' && generatedImageUrls.length > 0 && (
                  <button onClick={handleDownloadAll} className="flex items-center text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-4 rounded-md transition-colors">
                     {`생성된 이미지 다운로드 (${generatedImageUrls.length})`}
                  </button>
@@ -2497,7 +2693,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
             )}
             <button onClick={handleCopyAll} className="flex items-center text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-2 px-4 rounded-md transition-colors">
                 {copiedAll ? <CheckIcon className="w-4 h-4 mr-2 text-green-400" /> : <CopyIcon className="w-4 h-4 mr-2" />}
-                {copiedAll ? '복사 완료!' : '전체 복사'}
+                {copiedAll ? '복사 완료!' : (format === 'YOUTUBE-SHORTFORM' ? '프롬프트 복사' : '전체 복사')}
             </button>
         </div>
       )}
@@ -2523,21 +2719,23 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
             <div className="space-y-4">
               {renderedContent}
               <div className="mt-8 pt-6 border-t border-gray-200">
-                <h4 className="text-lg font-semibold text-gray-800 mb-3">연관 키워드 / 주제 추천</h4>
+                <h4 className="text-lg font-semibold text-gray-800 mb-3">
+                  {isInfographicContent ? '연관 인포그래픽 주제 추천' : '연관 키워드 / 주제 추천'}
+                </h4>
                 {suggestions && suggestions.length > 0 ? (
-                  <div className="flex flex-wrap gap-3">
+                  <div className={isInfographicContent ? "flex flex-col gap-3" : "flex flex-wrap gap-3"}>
                     {suggestions.slice(0, 3).map((suggestion, index) => (
                       <button
                         key={index}
                         onClick={() => onSuggestionClick(suggestion)}
-                        className="bg-gradient-to-r from-[#1FA77A] to-[#1FB88A] hover:from-[#1a8c68] hover:to-[#1a9d78] text-white font-medium py-2.5 px-5 rounded-full text-sm transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg"
+                        className={`${isInfographicContent ? 'w-full text-left' : ''} bg-gradient-to-r from-[#1FA77A] to-[#1FB88A] hover:from-[#1a8c68] hover:to-[#1a9d78] text-white font-medium py-2.5 px-5 rounded-full text-sm transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg`}
                       >
                         {suggestion}
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="flex flex-wrap gap-3">
+                  <div className={isInfographicContent ? "flex flex-col gap-3" : "flex flex-wrap gap-3"}>
                     {(() => {
                       // content에서 키워드 추출 시도
                       const keywordMatch = content.match(/🔑 핵심키워드:\s*(.+)/);
@@ -2550,7 +2748,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                           <button
                             key={index}
                             onClick={() => onSuggestionClick(keyword)}
-                            className="bg-gradient-to-r from-[#1FA77A] to-[#1FB88A] hover:from-[#1a8c68] hover:to-[#1a9d78] text-white font-medium py-2.5 px-5 rounded-full text-sm transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg"
+                            className={`${isInfographicContent ? 'w-full text-left' : ''} bg-gradient-to-r from-[#1FA77A] to-[#1FB88A] hover:from-[#1a8c68] hover:to-[#1a9d78] text-white font-medium py-2.5 px-5 rounded-full text-sm transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg`}
                           >
                             {keyword}
                           </button>
@@ -2559,7 +2757,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                       
                       // 키워드를 추출할 수 없을 때 기본 메시지
                       return (
-                        <p className="text-gray-500 text-sm">연관 키워드를 생성 중입니다...</p>
+                        <p className="text-gray-500 text-sm">{isInfographicContent ? '연관 인포그래픽 주제를 생성 중입니다...' : '연관 키워드를 생성 중입니다...'}</p>
                       );
                     })()}
                   </div>

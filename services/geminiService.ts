@@ -109,6 +109,7 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
     userPrompt += `\n🚨🚨🚨 중요: 골프 관련 컨텐츠 비활성화 🚨🚨🚨\n`;
     userPrompt += `골프와 연관된 내용, 키워드, 예시, 참고사항을 절대 사용하지 마세요.\n`;
     userPrompt += `골프장, 골프 용품, 골프 선수, 골프 용어 등 골프 관련 모든 내용을 제외하고 컨텐츠를 생성하세요.\n`;
+    userPrompt += `**단, 사용자가 직접 입력한 키워드/주제는 예외입니다. 사용자가 입력한 키워드/주제를 정확히 반영하여 컨텐츠를 생성하세요.**\n`;
     userPrompt += `일반적인 주제나 사용자가 입력한 주제에만 집중하여 컨텐츠를 생성하세요.\n\n`;
   }
 
@@ -207,9 +208,40 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
     }
   }
   if (input.format === 'YOUTUBE-SHORTFORM') {
-    userPrompt += `video_length: ${input.videoLength}\n`;
+    userPrompt += `video_length: ${input.videoLength}초\n`;
+    userPrompt += `cut_count: ${input.cutCount || 1}개\n`;
+    userPrompt += `\n🚨 중요: 사용자가 입력한 키워드/주제("${input.keyword}")와 참고 텍스트를 반드시 반영하여 영상 프롬프트와 이미지 프롬프트를 생성하세요. 키워드/주제와 관련된 내용으로만 구성하세요.\n`;
+    if (input.cutTexts && input.cutTexts.length > 0) {
+      userPrompt += `\n[컷별 참고 텍스트]\n`;
+      input.cutTexts.forEach((cutText, index) => {
+        if (cutText && cutText.trim()) {
+          userPrompt += `컷 ${index + 1}: ${cutText}\n`;
+        }
+      });
+      userPrompt += `\n위 컷별 참고 텍스트와 키워드/주제를 바탕으로 각 컷에 맞는 이미지 프롬프트를 생성하세요.\n`;
+      userPrompt += `🚨 중요: 모든 컷의 이미지 프롬프트에서 등장인물이 있다면, 영상 프롬프트에서 명시한 등장인물의 외형(얼굴 특징, 헤어스타일, 체형, 의상 등)을 정확히 동일하게 유지해야 합니다. 컷마다 등장인물의 생김새가 달라지면 안 됩니다.\n`;
+    }
   }
   if (input.format === 'ETC-BANNER') {
+    // 인포그래픽 컨텐츠 유형인 경우
+    if (input.bannerContentType === '인포그래픽') {
+      userPrompt += `컨텐츠 유형: 인포그래픽\n`;
+      if (input.aspectRatio) {
+        userPrompt += `기본 비율: ${input.aspectRatio}\n`;
+      }
+      if (input.keyword && input.keyword.trim()) {
+        userPrompt += `키워드/주제: ${input.keyword}\n`;
+      }
+      userPrompt += `\n🚨🚨🚨 최우선 중요: 사용자가 입력한 키워드/주제("${input.keyword || ''}")를 반드시 중심으로 인포그래픽 컨텐츠를 생성하세요.\n`;
+      userPrompt += `- 사용자가 입력한 키워드/주제에서 벗어나지 마세요. 무작위로 다른 주제의 내용을 생성하지 마세요.\n`;
+      userPrompt += `- 키워드/주제가 짧거나 간단한 경우(예: "스크린 골프", "골프", "퍼팅" 등), 해당 키워드와 관련된 구체적인 정보, 데이터, 통계, 팁 등을 자동으로 확장하여 인포그래픽을 구성하세요.\n`;
+      userPrompt += `- 키워드/주제와 관련된 정보, 데이터, 통계, 팁 등을 시각적으로 표현할 수 있는 인포그래픽으로 구성하세요.\n`;
+      userPrompt += `- 인포그래픽은 차트, 그래프, 아이콘, 숫자, 텍스트 등을 포함한 정보 전달형 디자인이어야 합니다.\n`;
+      userPrompt += `- 키워드만 입력되어도 관련된 구체적인 내용(통계, 방법, 팁, 데이터 등)을 자동으로 기획하여 인포그래픽에 포함하세요.\n`;
+      return userPrompt;
+    }
+    
+    // 일반 배너/포스터 포맷인 경우
     if (input.aspectRatio) {
       userPrompt += `기본 비율: ${input.aspectRatio}\n`;
     }
@@ -232,7 +264,7 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
       userPrompt += `⚠️ 중요: 선택된 모델(${input.imageGeneratorTool})에 최적화된 프롬프트를 작성하세요.\n`;
     }
   }
-  if (input.tone) {
+  if (input.tone && input.format !== 'YOUTUBE-SHORTFORM') {
     userPrompt += `톤앤매너: ${input.tone}\n`;
   }
   return userPrompt;

@@ -38,12 +38,15 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
   }, []);
 
   const [keyword, setKeyword] = useState(() => getRandomKeywordForCategory(CATEGORIES[0].name, false));
+  const [isKeywordManuallySet, setIsKeywordManuallySet] = useState(false); // 사용자가 직접 입력했는지 추적
   const [userText, setUserText] = useState('');
   const [cardCount, setCardCount] = useState(6);
   const [blogLength, setBlogLength] = useState(1000);
   const [sectionCount, setSectionCount] = useState(5);
-  const [videoLength, setVideoLength] = useState(30);
+  const [videoLength, setVideoLength] = useState(15);
   const [sceneCount, setSceneCount] = useState(6);
+  const [cutCount, setCutCount] = useState(1);
+  const [cutTexts, setCutTexts] = useState<string[]>(['']);
   const [tone, setTone] = useState(TONES[0]);
   const [aspectRatio, setAspectRatio] = useState(ASPECT_RATIOS[0].value);
   const [theme, setTheme] = useState(THEME_OPTIONS[0].value);
@@ -54,15 +57,20 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
   const [subheadline, setSubheadline] = useState('');
   const [bodyCopy, setBodyCopy] = useState('');
   const [cta, setCta] = useState('');
+  const [bannerContentType, setBannerContentType] = useState<'일반' | '인포그래픽'>('일반');
 
   useEffect(() => {
     if (suggestedKeyword) {
       setKeyword(suggestedKeyword);
+      setIsKeywordManuallySet(true); // 제안된 키워드도 사용자가 선택한 것으로 간주
       setUserText('');
     }
   }, [suggestedKeyword]);
 
   useEffect(() => {
+    // 사용자가 직접 입력한 키워드는 자동으로 변경하지 않음
+    if (isKeywordManuallySet) return;
+    
     if (isGolfRelated && format !== 'ETC-BANNER') {
       const isBlogFormat = format === 'NAVER-BLOG/BAND';
       const currentCategory = isBlogFormat ? blogCategory : category;
@@ -73,10 +81,13 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
         setKeyword(getRandomKeywordForCategory(currentCategory, isBlogFormat));
       }
     }
-  }, [category, blogCategory, format, isGolfRelated, getRandomKeywordForCategory]);
+  }, [category, blogCategory, format, isGolfRelated, getRandomKeywordForCategory, isKeywordManuallySet]);
   
-  // 포맷 변경 시 카테고리와 키워드 초기화
+  // 포맷 변경 시 카테고리와 키워드 초기화 (사용자가 직접 입력한 경우 제외)
   useEffect(() => {
+    // 사용자가 직접 입력한 키워드는 포맷 변경 시에도 유지
+    if (isKeywordManuallySet) return;
+    
     const isBlogFormat = format === 'NAVER-BLOG/BAND';
     const isBannerFormat = format === 'ETC-BANNER';
     if (isBlogFormat) {
@@ -86,7 +97,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       setCategory(CATEGORIES[0].name);
       setKeyword(getRandomKeywordForCategory(CATEGORIES[0].name, false));
     }
-  }, [format, getRandomKeywordForCategory]);
+  }, [format, getRandomKeywordForCategory, isKeywordManuallySet]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,33 +105,43 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
     const isBannerFormat = format === 'ETC-BANNER';
     const currentCategory = isBlogFormat ? blogCategory : category;
     
-    // 배너/포스터 포맷일 때 헤드라인 필수 체크
-    if (isBannerFormat && !headline.trim()) {
+    // 배너/포스터 포맷일 때 헤드라인 필수 체크 (인포그래픽이 아닐 때만)
+    if (isBannerFormat && bannerContentType === '일반' && !headline.trim()) {
       alert('헤드라인을 입력해주세요.');
       return;
     }
+    // 인포그래픽 선택 시 키워드 필수 체크
+    if (isBannerFormat && bannerContentType === '인포그래픽' && !keyword.trim()) {
+      alert('주제/키워드를 입력해주세요.');
+      return;
+    }
+    
+    const isYouTubeFormat = format === 'YOUTUBE-SHORTFORM';
     
     const userInput: UserInput = {
       isGolfRelated,
       category: format === 'INSTAGRAM-CARD' ? '데일리 뉴스' : (currentCategory === '직접 입력' ? customCategory : currentCategory),
       format,
-      keyword: isBannerFormat ? '' : keyword,
+      keyword: isBannerFormat && bannerContentType === '인포그래픽' ? keyword : (isBannerFormat ? '' : keyword),
       userText: isBannerFormat ? '' : userText,
       cardCount,
       blogLength,
       sectionCount,
       videoLength,
       sceneCount,
-      tone: isBannerFormat ? '' : tone,
+      tone: isBannerFormat || isYouTubeFormat ? '' : tone,
       aspectRatio: isBannerFormat ? aspectRatio : undefined,
       theme: isBannerFormat ? theme : undefined,
       style: isBannerFormat ? style : undefined,
       imageGeneratorTool: isBannerFormat ? imageGeneratorTool : undefined,
       alignment: isBannerFormat ? alignment : undefined,
-      headline: isBannerFormat ? headline : undefined,
-      subheadline: isBannerFormat ? subheadline : undefined,
-      bodyCopy: isBannerFormat ? bodyCopy : undefined,
-      cta: isBannerFormat ? cta : undefined,
+      headline: isBannerFormat && bannerContentType === '일반' ? headline : undefined,
+      subheadline: isBannerFormat && bannerContentType === '일반' ? subheadline : undefined,
+      bodyCopy: isBannerFormat && bannerContentType === '일반' ? bodyCopy : undefined,
+      cta: isBannerFormat && bannerContentType === '일반' ? cta : undefined,
+      bannerContentType: isBannerFormat ? bannerContentType : undefined,
+      cutCount: isYouTubeFormat ? cutCount : undefined,
+      cutTexts: isYouTubeFormat ? cutTexts : undefined,
     };
     onGenerate(userInput);
   };
@@ -131,6 +152,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
     
     if (currentCategory !== '직접 입력') {
         setKeyword(getRandomKeywordForCategory(currentCategory, isBlogFormat));
+        setIsKeywordManuallySet(false); // 새로고침 버튼으로 생성된 키워드는 자동 생성으로 간주
     }
   };
 
@@ -145,6 +167,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
     
     // 키워드 무작위 선택
     const randomKeyword = getRandomKeywordForCategory(randomCategory.name, isBlogFormat);
+    setIsKeywordManuallySet(false); // 빠른 생성으로 생성된 키워드는 자동 생성으로 간주
     
     // 카드 수 무작위 선택 (3-10)
     const randomCardCount = Math.floor(Math.random() * 8) + 3;
@@ -247,48 +270,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
         </div>
       </div>
       
-      {isGolfRelated && format === 'NAVER-BLOG/BAND' && (
-        <div>
-          <div className="flex items-center mb-1">
-              <label htmlFor="blogCategory" className={commonLabelClass}>카테고리</label>
-              <div className="group relative ml-1.5">
-                  <QuestionMarkCircleIcon className="w-4 h-4 text-gray-400 cursor-help" />
-                  <div className="absolute top-full left-1/2 z-20 mt-2 -translate-x-1/2 w-80 transform opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-                      <div className="bg-white text-gray-700 text-sm rounded-lg shadow-xl p-3 border border-gray-200">
-                          <h4 className="font-bold text-gray-900 mb-2 text-base">카테고리 설명</h4>
-                          <ul className="space-y-1.5 text-left">
-                              {BLOG_CATEGORIES.map(c => (
-                                  <li key={c.name} className="flex">
-                                      <strong className="text-[#004B49] font-semibold w-28 flex-shrink-0">{c.name}:</strong>
-                                      <span className="text-gray-600">{c.description}</span>
-                                  </li>
-                              ))}
-                          </ul>
-                      </div>
-                  </div>
-              </div>
-          </div>
-          <select id="blogCategory" value={blogCategory} onChange={(e) => setBlogCategory(e.target.value)} className={selectInputClass}>
-            {BLOG_CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-          </select>
-           {blogCategory === '직접 입력' && (
-            <div className="mt-2">
-              <label htmlFor="customCategory" className={`${commonLabelClass} mb-1 sr-only`}>사용자 정의 카테고리</label>
-              <input
-                type="text"
-                id="customCategory"
-                value={customCategory}
-                onChange={(e) => setCustomCategory(e.target.value)}
-                className={commonInputClass}
-                placeholder="카테고리명을 입력하세요"
-                required
-              />
-            </div>
-          )}
-        </div>
-      )}
-      
-      {isGolfRelated && format !== 'NAVER-BLOG/BAND' && format !== 'ETC-BANNER' && format !== 'INSTAGRAM-CARD' && (
+      {isGolfRelated && format !== 'NAVER-BLOG/BAND' && format !== 'ETC-BANNER' && format !== 'INSTAGRAM-CARD' && format !== 'YOUTUBE-SHORTFORM' && (
         <div>
           <div className="flex items-center mb-1">
               <label htmlFor="category" className={commonLabelClass}>카테고리</label>
@@ -330,36 +312,78 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       )}
 
       {format === 'YOUTUBE-SHORTFORM' && (
-        <div>
-          <label htmlFor="videoLength" className={`${commonLabelClass} mb-2`}>
-            영상 길이
-            <span className="ml-2 text-lg font-bold text-[#004B49]">{videoLength}초</span>
-          </label>
-          <input
-            type="range"
-            id="videoLength"
-            min="5"
-            max="60"
-            step="5"
-            value={videoLength}
-            onChange={(e) => setVideoLength(parseInt(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#004B49] hover:accent-[#003A38] transition-colors"
-          />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>5초</span>
-            <span>10초</span>
-            <span>15초</span>
-            <span>20초</span>
-            <span>25초</span>
-            <span>30초</span>
-            <span>35초</span>
-            <span>40초</span>
-            <span>45초</span>
-            <span>50초</span>
-            <span>55초</span>
-            <span>60초</span>
+        <>
+          <div>
+            <label htmlFor="videoLength" className={`${commonLabelClass} mb-2`}>
+              영상 길이
+              <span className="ml-2 text-lg font-bold text-[#004B49]">{videoLength}초</span>
+            </label>
+            <input
+              type="range"
+              id="videoLength"
+              min="5"
+              max="15"
+              step="5"
+              value={videoLength}
+              onChange={(e) => setVideoLength(parseInt(e.target.value))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#004B49] hover:accent-[#003A38] transition-colors"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>5초</span>
+              <span>10초</span>
+              <span>15초</span>
+            </div>
           </div>
-        </div>
+          
+          <div>
+            <label htmlFor="cutCount" className={`${commonLabelClass} mb-2`}>
+              영상 컷
+              <span className="ml-2 text-lg font-bold text-[#004B49]">{cutCount}개</span>
+            </label>
+            <input
+              type="range"
+              id="cutCount"
+              min="1"
+              max="5"
+              step="1"
+              value={cutCount}
+              onChange={(e) => {
+                const newCutCount = parseInt(e.target.value);
+                setCutCount(newCutCount);
+                // 컷 수에 맞춰 cutTexts 배열 조정
+                const newCutTexts = Array(newCutCount).fill('').map((_, index) => cutTexts[index] || '');
+                setCutTexts(newCutTexts);
+              }}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#004B49] hover:accent-[#003A38] transition-colors"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>1개</span>
+              <span>2개</span>
+              <span>3개</span>
+              <span>4개</span>
+              <span>5개</span>
+            </div>
+          </div>
+          
+          {Array.from({ length: cutCount }).map((_, index) => (
+            <div key={index}>
+              <label htmlFor={`cutText-${index}`} className={`${commonLabelClass} mb-1`}>
+                컷 {index + 1} 참고 텍스트 {index === 0 && <span className="text-gray-400 text-xs">(선택)</span>}
+              </label>
+              <textarea
+                id={`cutText-${index}`}
+                value={cutTexts[index] || ''}
+                onChange={(e) => {
+                  const newCutTexts = [...cutTexts];
+                  newCutTexts[index] = e.target.value;
+                  setCutTexts(newCutTexts);
+                }}
+                className={`${commonInputClass} h-24`}
+                placeholder={`컷 ${index + 1}에 대한 참고 텍스트를 입력하세요`}
+              />
+            </div>
+          ))}
+        </>
       )}
 
       {format === 'INSTAGRAM-CARD' && (
@@ -459,6 +483,64 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
               {ASPECT_RATIOS.map(ratio => <option key={ratio.value} value={ratio.value}>{ratio.label}</option>)}
             </select>
           </div>
+          <div>
+            <label className={`${commonLabelClass} mb-2`}>컨텐츠 유형</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setBannerContentType('일반')}
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                  bannerContentType === '일반'
+                    ? 'border-[#004B49] bg-[#004B49]/5 text-[#004B49]'
+                    : 'border-gray-200 hover:border-[#004B49]/50 text-gray-600'
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm font-medium">일반</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBannerContentType('인포그래픽')}
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                  bannerContentType === '인포그래픽'
+                    ? 'border-[#004B49] bg-[#004B49]/5 text-[#004B49]'
+                    : 'border-gray-200 hover:border-[#004B49]/50 text-gray-600'
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span className="text-sm font-medium">인포그래픽</span>
+              </button>
+            </div>
+          </div>
+          {bannerContentType === '인포그래픽' && (
+            <>
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                <p className="text-sm text-blue-800">
+                  <strong>인포그래픽 유형</strong>이 선택되었습니다. 주제/키워드를 입력하여 인포그래픽 컨텐츠를 생성하세요.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="keyword" className={`${commonLabelClass} mb-1`}>주제 / 키워드</label>
+                <input 
+                    type="text" 
+                    id="keyword" 
+                    value={keyword} 
+                    onChange={(e) => {
+                      setKeyword(e.target.value);
+                      setIsKeywordManuallySet(true);
+                    }} 
+                    className={`${commonInputClass} pr-10`}
+                    placeholder="인포그래픽 주제나 키워드를 입력하세요" 
+                />
+              </div>
+            </>
+          )}
+          {bannerContentType === '일반' && (
+          <>
           <div>
             <label className={`${commonLabelClass} mb-2`}>테마 옵션</label>
             <div className="grid grid-cols-2 gap-3">
@@ -703,10 +785,12 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
               </p>
             )}
           </div>
+          </>
+          )}
         </>
       )}
       
-      {format !== 'ETC-BANNER' && (
+      {format !== 'ETC-BANNER' && format !== 'YOUTUBE-SHORTFORM' && (
         <div>
           <label htmlFor="tone" className={`${commonLabelClass} mb-1`}>톤앤매너</label>
           <select id="tone" value={tone} onChange={(e) => setTone(e.target.value)} className={selectInputClass}>
@@ -724,7 +808,10 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
                     type="text" 
                     id="keyword" 
                     value={keyword} 
-                    onChange={(e) => setKeyword(e.target.value)} 
+                    onChange={(e) => {
+                      setKeyword(e.target.value);
+                      setIsKeywordManuallySet(true); // 사용자가 직접 입력했음을 표시
+                    }} 
                     className={`${commonInputClass} pr-10`}
                     placeholder={isGolfRelated && category !== '직접 입력' ? "카테고리에 맞는 주제를 추천해드려요" : "생성할 콘텐츠의 주제를 입력하세요"} 
                 />
