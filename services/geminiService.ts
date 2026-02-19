@@ -443,6 +443,13 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
   throw new Error('모든 모델에서 요청이 실패했습니다.');
 };
 
+/** 429/RESOURCE_EXHAUSTED 등 할당량 초과 여부 확인 */
+const isQuotaExhausted = (error: any): boolean => {
+  const code = error?.error?.code ?? error?.status;
+  const status = (error?.error?.status ?? error?.status ?? '').toString().toUpperCase();
+  return code === 429 || status === 'RESOURCE_EXHAUSTED';
+};
+
 export const generateImage = async (prompt: string, model: string = 'imagen-4.0-generate-001'): Promise<string> => {
   if (!process.env.API_KEY) {
     throw new Error("API_KEY is not set in environment variables.");
@@ -450,7 +457,7 @@ export const generateImage = async (prompt: string, model: string = 'imagen-4.0-
   
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-  if (model === 'imagen-4.0-generate-001') {
+  const tryImagen = async (): Promise<string> => {
     const response = await retryWithBackoff(async () => {
       return await ai.models.generateImages({
         model: 'imagen-4.0-generate-001',
@@ -462,11 +469,13 @@ export const generateImage = async (prompt: string, model: string = 'imagen-4.0-
         },
       });
     });
-
     if (response.generatedImages && response.generatedImages.length > 0) {
       return response.generatedImages[0].image.imageBytes;
     }
-  } else if (model === 'gemini-2.5-flash-image') {
+    throw new Error("Image generation failed.");
+  };
+
+  const tryGeminiImage = async (): Promise<string> => {
     const response = await retryWithBackoff(async () => {
       return await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
@@ -478,11 +487,27 @@ export const generateImage = async (prompt: string, model: string = 'imagen-4.0-
         },
       });
     });
-    
     for (const part of response.candidates?.[0]?.content?.parts ?? []) {
       if (part.inlineData) {
         return part.inlineData.data;
       }
+    }
+    throw new Error("Image generation failed.");
+  };
+
+  if (model === 'imagen-4.0-generate-001') {
+    return tryImagen();
+  }
+
+  if (model === 'gemini-2.5-flash-image') {
+    try {
+      return await tryGeminiImage();
+    } catch (error: any) {
+      if (isQuotaExhausted(error)) {
+        console.warn('Gemini 이미지 모델 할당량 초과(429). Imagen으로 폴백합니다.', error?.error?.message || error?.message);
+        return tryImagen();
+      }
+      throw error;
     }
   }
   
