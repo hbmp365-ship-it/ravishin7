@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 import type { UserInput, GeneratedContent } from '../types';
-import { SYSTEM_PROMPT } from '../constants';
+import { SYSTEM_PROMPT, GEMINI_NATIVE_IMAGE_MODEL_ID } from '../constants';
 
 /**
  * URL에서 텍스트 내용 가져오기
@@ -113,62 +113,117 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
     userPrompt += `일반적인 주제나 사용자가 입력한 주제에만 집중하여 컨텐츠를 생성하세요.\n\n`;
   }
 
-  if (input.format === 'ETC-BANNER') {
-    // 배너/포스터 포맷일 때
+  // 기타 이벤트 배너: 배너에 넣을 **문구 기획만** (이미지 프롬프트·시각 스펙 없음)
+  if (input.format === 'ETC-BANNER' && input.bannerContentType === '기타 이벤트 배너') {
     const headline = input.headline || '';
-    const headlineLength = headline.length;
-    userPrompt += `헤드라인: "${headline}"\n`;
-    if (headlineLength > 8) {
-      userPrompt += `\n🚨🚨🚨 절대 엄수 규칙 🚨🚨🚨\n`;
-      userPrompt += `헤드라인 글자 수: ${headlineLength}자 (8글자 초과)\n`;
-      userPrompt += `📝 원본 헤드라인: "${headline}"\n`;
-      userPrompt += `\n❌ 절대 금지:\n`;
-      userPrompt += `- 단어 추가 금지 (예: "오픈!!" → "오픈 기념" 절대 금지)\n`;
-      userPrompt += `- 단어 변경 금지 (예: "오픈" → "런칭", "서비스" → "앱" 절대 금지)\n`;
-      userPrompt += `- 느낌표/물음표 제거 금지 (예: "오픈!!" → "오픈" 절대 금지)\n`;
-      userPrompt += `- 띄어쓰기 변경 금지\n`;
-      userPrompt += `- 어떠한 수정도 금지\n`;
-      userPrompt += `\n✅ 필수 출력:\n`;
-      userPrompt += `"${headline}" ← 이것을 정확히 100% 그대로 사용하세요.\n`;
-      userPrompt += `\n⚠️ 경고: 헤드라인을 조금이라도 수정하면 심각한 오류입니다. 반드시 원본 그대로 사용하세요!\n\n`;
-    } else {
-      userPrompt += `헤드라인 글자 수: ${headlineLength}자 (8글자 이하 - 확장 가능)\n`;
+    userPrompt += `카테고리: ${input.category}\n`;
+    userPrompt += `컨텐츠 유형: 기타 이벤트 배너 (텍스트 기획 전용)\n`;
+    if (input.aspectRatio) {
+      userPrompt += `선택된 기본 비율(이미지 생성·레이아웃 참고용 — 본문에 '기본 비율:' 줄로 출력하지 마세요): ${input.aspectRatio}\n`;
     }
-    
+    userPrompt += `\n🚨🚨🚨 역할: 이벤트 배너에 들어갈 **카피(문구)만** 정리합니다. 🚨🚨🚨\n`;
+    userPrompt += `- **금지**: 이미지 생성 프롬프트, 영어 프롬프트, 나노바나나/Midjourney/DALL·E 등 도구용 설명, "제목:"·"기본 비율:"·📐·🎨·💡 형식의 일반 배너 출력, 색상 HEX·폰트명·픽셀·일러스트 지시.\n`;
+    userPrompt += `- **허용**: 한국어로 배너에 실을 문구를 섹션별로 짧게 정리. (선택) 정보 위계를 **문장으로만** 2~3줄 안내 가능.\n\n`;
+    userPrompt += `🚨 사용자 입력 원본 보존 (최우선)\n`;
+    userPrompt += `- 제목·부제목·본문·CTA 중 **입력된 필드**는 최종 출력에서 **입력과 완전히 동일** (확장·축약·맞춤법·띄어쓰기·구두점 변경 금지).\n`;
+    userPrompt += `- **비어 있는 필드만** 이벤트에 맞게 AI가 작성.\n\n`;
+    userPrompt += `제목(필수): "${headline}"\n`;
+    userPrompt += `→ "## 헤드라인" 아래에 위 문자열을 **그대로** 넣으세요.\n\n`;
     if (input.subheadline && input.subheadline.trim()) {
-      const subheadlineLength = input.subheadline.length;
-      userPrompt += `서브헤드라인: "${input.subheadline}"\n`;
-      if (subheadlineLength > 8) {
-        userPrompt += `🚨 서브헤드라인 글자 수: ${subheadlineLength}자 (8글자 초과) → 그대로 사용 필수\n`;
-        userPrompt += `✅ 반드시 "${input.subheadline}" 정확히 그대로 출력하세요. 수정/추가/삭제 금지!\n\n`;
-      } else {
-        userPrompt += `서브헤드라인 글자 수: ${subheadlineLength}자 (8글자 이하 - 확장 가능)\n`;
-      }
+      userPrompt += `부제목: "${input.subheadline}" → "## 서브카피" 아래에 **그대로**.\n\n`;
     } else {
-      userPrompt += `서브헤드라인: (입력 없음 - 자동 생성)\n`;
+      userPrompt += `부제목: (미입력 — "## 서브카피"에 AI 작성)\n\n`;
     }
-    
     if (input.bodyCopy && input.bodyCopy.trim()) {
-      userPrompt += `바디카피: ${input.bodyCopy}\n`;
-      userPrompt += `바디카피 글자 수: ${input.bodyCopy.length}자\n`;
-      userPrompt += `✅ 입력된 바디카피를 그대로 사용하세요.\n`;
+      userPrompt += `본문: """${input.bodyCopy}""" → "## 본문" 아래에 **그대로**.\n\n`;
     } else {
-      userPrompt += `바디카피: (입력 없음 - 자동 생성)\n`;
+      userPrompt += `본문: (미입력 — "## 본문"에 AI 작성)\n\n`;
     }
-    
     if (input.cta && input.cta.trim()) {
-      const ctaLength = input.cta.length;
-      userPrompt += `CTA: "${input.cta}"\n`;
-      if (ctaLength > 8) {
-        userPrompt += `🚨 CTA 글자 수: ${ctaLength}자 (8글자 초과) → 그대로 사용 필수\n`;
-        userPrompt += `✅ 반드시 "${input.cta}" 정확히 그대로 출력하세요. 수정/추가/삭제 금지!\n\n`;
-      } else {
-        userPrompt += `CTA 글자 수: ${ctaLength}자 (8글자 이하 - 확장 가능)\n`;
-      }
+      userPrompt += `CTA: "${input.cta}" → "## CTA" 아래에 **그대로**.\n\n`;
     } else {
-      userPrompt += `CTA: (입력 없음 - 자동 생성)\n`;
+      userPrompt += `CTA: (미입력 — "## CTA"에 AI 작성)\n\n`;
     }
-  } else {
+    userPrompt += `필수 출력 형식 (이 순서·제목 그대로):\n\n`;
+    userPrompt += `## 헤드라인\n`;
+    userPrompt += `(위 제목 문자열 그대로, 한 줄)\n\n`;
+    userPrompt += `## 서브카피\n`;
+    userPrompt += `(부제·보조 문구, 1~3줄)\n\n`;
+    userPrompt += `## 본문\n`;
+    userPrompt += `(바디 카피, 필요 시 여러 줄)\n\n`;
+    userPrompt += `## CTA\n`;
+    userPrompt += `(행동 유도 한 줄)\n\n`;
+    userPrompt += `## 텍스트 배치 안내 (선택)\n`;
+    userPrompt += `위 문구를 배너에서 어떻게 나눠 배치할지 **한국어 문장**으로만 2~4줄 (예: 상단 헤드라인, 중앙 본문). 색·이미지·폰트 지시 금지.\n\n`;
+    userPrompt += `마지막 줄: 후속 제안: [비슷한 이벤트 주제 1], [2], [3]\n`;
+
+    if (input.referenceUrl) {
+      const urlContent = await fetchUrlContent(input.referenceUrl);
+      userPrompt += `\n[참고 URL 내용]\n`;
+      userPrompt += `URL: ${input.referenceUrl}\n`;
+      userPrompt += `내용:\n${urlContent}\n`;
+      userPrompt += `\n위 URL 정보를 반영하되, 사용자가 입력한 고정 문구는 절대 수정하지 마세요.\n`;
+    }
+    userPrompt += `text_length: ${input.blogLength}\n`;
+    return userPrompt;
+  }
+
+  if (input.format === 'ETC-BANNER' && input.bannerContentType === '일반') {
+      // 배너/포스터 — 일반 유형
+      const headline = input.headline || '';
+      const headlineLength = headline.length;
+      userPrompt += `헤드라인: "${headline}"\n`;
+      if (headlineLength > 8) {
+        userPrompt += `\n🚨🚨🚨 절대 엄수 규칙 🚨🚨🚨\n`;
+        userPrompt += `헤드라인 글자 수: ${headlineLength}자 (8글자 초과)\n`;
+        userPrompt += `📝 원본 헤드라인: "${headline}"\n`;
+        userPrompt += `\n❌ 절대 금지:\n`;
+        userPrompt += `- 단어 추가 금지 (예: "오픈!!" → "오픈 기념" 절대 금지)\n`;
+        userPrompt += `- 단어 변경 금지 (예: "오픈" → "런칭", "서비스" → "앱" 절대 금지)\n`;
+        userPrompt += `- 느낌표/물음표 제거 금지 (예: "오픈!!" → "오픈" 절대 금지)\n`;
+        userPrompt += `- 띄어쓰기 변경 금지\n`;
+        userPrompt += `- 어떠한 수정도 금지\n`;
+        userPrompt += `\n✅ 필수 출력:\n`;
+        userPrompt += `"${headline}" ← 이것을 정확히 100% 그대로 사용하세요.\n`;
+        userPrompt += `\n⚠️ 경고: 헤드라인을 조금이라도 수정하면 심각한 오류입니다. 반드시 원본 그대로 사용하세요!\n\n`;
+      } else {
+        userPrompt += `헤드라인 글자 수: ${headlineLength}자 (8글자 이하 - 확장 가능)\n`;
+      }
+
+      if (input.subheadline && input.subheadline.trim()) {
+        const subheadlineLength = input.subheadline.length;
+        userPrompt += `서브헤드라인: "${input.subheadline}"\n`;
+        if (subheadlineLength > 8) {
+          userPrompt += `🚨 서브헤드라인 글자 수: ${subheadlineLength}자 (8글자 초과) → 그대로 사용 필수\n`;
+          userPrompt += `✅ 반드시 "${input.subheadline}" 정확히 그대로 출력하세요. 수정/추가/삭제 금지!\n\n`;
+        } else {
+          userPrompt += `서브헤드라인 글자 수: ${subheadlineLength}자 (8글자 이하 - 확장 가능)\n`;
+        }
+      } else {
+        userPrompt += `서브헤드라인: (입력 없음 - 자동 생성)\n`;
+      }
+
+      if (input.bodyCopy && input.bodyCopy.trim()) {
+        userPrompt += `바디카피: ${input.bodyCopy}\n`;
+        userPrompt += `바디카피 글자 수: ${input.bodyCopy.length}자\n`;
+        userPrompt += `✅ 입력된 바디카피를 그대로 사용하세요.\n`;
+      } else {
+        userPrompt += `바디카피: (입력 없음 - 자동 생성)\n`;
+      }
+
+      if (input.cta && input.cta.trim()) {
+        const ctaLength = input.cta.length;
+        userPrompt += `CTA: "${input.cta}"\n`;
+        if (ctaLength > 8) {
+          userPrompt += `🚨 CTA 글자 수: ${ctaLength}자 (8글자 초과) → 그대로 사용 필수\n`;
+          userPrompt += `✅ 반드시 "${input.cta}" 정확히 그대로 출력하세요. 수정/추가/삭제 금지!\n\n`;
+        } else {
+          userPrompt += `CTA 글자 수: ${ctaLength}자 (8글자 이하 - 확장 가능)\n`;
+        }
+      } else {
+        userPrompt += `CTA: (입력 없음 - 자동 생성)\n`;
+      }
+  } else if (input.format !== 'ETC-BANNER') {
     // 다른 포맷일 때
     userPrompt += `카테고리: ${input.category}\n`;
     if (input.keyword && input.keyword.trim()) {
@@ -223,6 +278,76 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
     }
   }
   if (input.format === 'ETC-BANNER') {
+    const textOnlyBannerNotice =
+      '\n🚨 이 컨텐츠 유형은 **텍스트 전용**입니다.\n' +
+      '- 출력 금지: 일반 배너용 "제목:", 기본 비율·테마·스타일 설명, 📐 디자인 컨셉, 🎨 AI 이미지 생성 프롬프트, 💡 디자인 가이드라인, 후속 제안.\n' +
+      '- 아래에 명시한 섹션 제목을 그대로 사용하고 한국어로만 작성하세요.\n\n';
+
+    if (input.bannerContentType === '랭킹오브더월드') {
+      userPrompt += `카테고리: ${input.category}\n`;
+      userPrompt += `컨텐츠 유형: 랭킹오브더월드\n`;
+      if (input.aspectRatio) {
+        userPrompt += `(참고) 썸네일·배너 이미지 생성 시 선호 비율: ${input.aspectRatio}. 본문 출력 형식 규칙은 아래와 같습니다.\n`;
+      }
+      if (input.keyword && input.keyword.trim()) {
+        userPrompt += `골프 관련 랭킹 주제: ${input.keyword}\n`;
+      }
+      userPrompt += textOnlyBannerNotice;
+      userPrompt += `다음 섹션으로 출력하세요:\n\n`;
+      userPrompt += `## 랭킹 주제\n`;
+      userPrompt += `(위 주제를 한 줄로 요약)\n\n`;
+      userPrompt += `## Top 10 랭킹\n`;
+      userPrompt += `1위부터 10위까지 번호를 붙이고, 각 항목은 "순위. 항목명 — 한두 문장 설명 또는 핵심 포인트" 형식으로 정돈하세요. 골프와 직접 관련된 주제여야 합니다.\n\n`;
+      userPrompt += `## 인스타그램 포스팅 글\n`;
+      userPrompt += `위 랭킹을 소개하는 캡션(2~5문단, 이모지 적절히). 마지막에 해시태그 5~8개(골프 관련).\n`;
+      userPrompt += `검증되지 않은 사실은 단정하지 말고, 일반적으로 알려진 정보나 상식 수준에서 작성하세요.\n`;
+      userPrompt += `\n본문 마지막 줄에 반드시 추가: 후속 제안: [비슷한 랭킹 주제 1], [주제 2], [주제 3] (쉼표로 구분, 각 20자 내외)\n`;
+      return userPrompt;
+    }
+
+    if (input.bannerContentType === '어디로칠까') {
+      const name = (input.bannerGolfCourseName || '').trim();
+      userPrompt += `카테고리: ${input.category}\n`;
+      userPrompt += `컨텐츠 유형: 어디로칠까\n`;
+      userPrompt += `국내 골프장 이름: ${name}\n`;
+      if (input.aspectRatio) {
+        userPrompt += `(참고) 썸네일·배너 이미지 생성 시 선호 비율: ${input.aspectRatio}. 본문 출력 형식 규칙은 아래와 같습니다.\n`;
+      }
+      userPrompt += textOnlyBannerNotice;
+      userPrompt += `다음 섹션으로 출력하세요:\n\n`;
+      userPrompt += `## 골프장 개요\n`;
+      userPrompt += `지역(시·도), 대략적인 특징, 어떤 골퍼에게 맞을지 등을 한눈에 정리.\n\n`;
+      userPrompt += `## 코스·시설·분위기\n`;
+      userPrompt += `알려진 정보를 바탕으로 정리. 불확실하면 "일반적으로 알려진 바에 따르면" 등으로 서술하고 추측은 최소화.\n\n`;
+      userPrompt += `## 라운딩·예약 팁\n`;
+      userPrompt += `예약, 시즌, 준비물 등 실용 팁 3~6가지.\n\n`;
+      userPrompt += `## 인스타그램 포스팅 글\n`;
+      userPrompt += `이 골프장을 소개하는 캡션과 해시태그 5~8개.\n`;
+      userPrompt += `\n본문 마지막 줄에 반드시 추가: 후속 제안: [다른 국내 골프장 또는 지역 1], [2], [3] (쉼표로 구분)\n`;
+      return userPrompt;
+    }
+
+    if (input.bannerContentType === '골프용어사전') {
+      const level = input.golfDictionaryLevel || '입문자';
+      userPrompt += `카테고리: ${input.category}\n`;
+      userPrompt += `컨텐츠 유형: 골프용어사전\n`;
+      userPrompt += `난이도: ${level}\n`;
+      if (input.aspectRatio) {
+        userPrompt += `(참고) 썸네일·배너 이미지 생성 시 선호 비율: ${input.aspectRatio}. 본문 출력 형식 규칙은 아래와 같습니다.\n`;
+      }
+      userPrompt += textOnlyBannerNotice;
+      userPrompt += `다음 섹션으로 출력하세요:\n\n`;
+      userPrompt += `## 난이도: ${level}\n`;
+      userPrompt += `선택 난이도에 맞는 골프 용어 **정확히 10개**를 선정하세요.\n\n`;
+      userPrompt += `## 골프 용어 10선\n`;
+      userPrompt += `각 항목 형식: **용어** (영문 병기 가능) — 짧은 정의(1~2문장) — 라운딩/연습에서의 쓰임 한 줄.\n`;
+      userPrompt += `입문자: 기초 규칙·스윙·코스 기본 용어 위주. 중급자: 샷 형태, 전략, 스코어·필드 용어. 고급자: 룰 세부, 샷 셰이핑, 장비·스펙, 투어·기술 용어 등.\n\n`;
+      userPrompt += `## 인스타그램 포스팅 글\n`;
+      userPrompt += `오늘의 용어 공부를 권하는 톤의 캡션과 해시태그 5~8개.\n`;
+      userPrompt += `\n본문 마지막 줄에 반드시 추가: 후속 제안: [용어/주제 1], [2], [3] (쉼표로 구분, 같은 난이도 또는 인접 난이도)\n`;
+      return userPrompt;
+    }
+
     // 인포그래픽 컨텐츠 유형인 경우
     if (input.bannerContentType === '인포그래픽') {
       userPrompt += `컨텐츠 유형: 인포그래픽\n`;
@@ -238,10 +363,14 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
       userPrompt += `- 키워드/주제와 관련된 정보, 데이터, 통계, 팁 등을 시각적으로 표현할 수 있는 인포그래픽으로 구성하세요.\n`;
       userPrompt += `- 인포그래픽은 차트, 그래프, 아이콘, 숫자, 텍스트 등을 포함한 정보 전달형 디자인이어야 합니다.\n`;
       userPrompt += `- 키워드만 입력되어도 관련된 구체적인 내용(통계, 방법, 팁, 데이터 등)을 자동으로 기획하여 인포그래픽에 포함하세요.\n`;
+      userPrompt += `- 시각은 되도록 일러스트·아이콘·차트 등 그래픽 중심으로 하고 실사 사진은 최소화하세요. 한글·숫자 텍스트는 가독성(대비, 크기 위계, 여백)을 최우선으로 📊·📐·🎨에 반영하세요.\n`;
       return userPrompt;
     }
     
     // 일반 배너/포스터 포맷인 경우
+    userPrompt +=
+      `\n[배너/포스터 시각 방향] 📐 디자인 컨셉·🎨 AI 이미지 생성 프롬프트 작성 시: 실사(현실 사진)보다 **일러스트·벡터·플랫 그래픽·아이콘·도형**을 우선하세요. ` +
+      `텍스트는 **가독성 최우선**(배경과 충분한 명암 대비, 헤드라인·본문 크기 위계, 필요 시 글자 뒤 반투명 패널·외곽선).\n\n`;
     if (input.aspectRatio) {
       userPrompt += `기본 비율: ${input.aspectRatio}\n`;
     }
@@ -443,74 +572,37 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
   throw new Error('모든 모델에서 요청이 실패했습니다.');
 };
 
-/** 429/RESOURCE_EXHAUSTED 등 할당량 초과 여부 확인 */
-const isQuotaExhausted = (error: any): boolean => {
-  const code = error?.error?.code ?? error?.status;
-  const status = (error?.error?.status ?? error?.status ?? '').toString().toUpperCase();
-  return code === 429 || status === 'RESOURCE_EXHAUSTED';
-};
-
-export const generateImage = async (prompt: string, model: string = 'imagen-4.0-generate-001'): Promise<string> => {
+/**
+ * 이미지 생성은 항상 Gemini 네이티브 이미지 모델 1종만 사용합니다.
+ * 두 번째 인자는 하위 호환용이며 무시됩니다.
+ */
+export const generateImage = async (prompt: string, _modelIgnored?: string): Promise<string> => {
   if (!process.env.API_KEY) {
     throw new Error("API_KEY is not set in environment variables.");
   }
-  
+
+  const modelId = GEMINI_NATIVE_IMAGE_MODEL_ID;
+  console.log('[generateImage] model:', modelId);
+
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-  const tryImagen = async (): Promise<string> => {
-    const response = await retryWithBackoff(async () => {
-      return await ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt: prompt,
-        config: {
-          numberOfImages: 1,
-          outputMimeType: 'image/jpeg',
-          aspectRatio: '1:1',
-        },
-      });
+  const response = await retryWithBackoff(async () => {
+    return await ai.models.generateContent({
+      model: modelId,
+      contents: {
+        parts: [{ text: prompt }],
+      },
+      config: {
+        responseModalities: [Modality.IMAGE],
+      },
     });
-    if (response.generatedImages && response.generatedImages.length > 0) {
-      return response.generatedImages[0].image.imageBytes;
-    }
-    throw new Error("Image generation failed.");
-  };
+  });
 
-  const tryGeminiImage = async (): Promise<string> => {
-    const response = await retryWithBackoff(async () => {
-      return await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [{ text: prompt }],
-        },
-        config: {
-          responseModalities: [Modality.IMAGE],
-        },
-      });
-    });
-    for (const part of response.candidates?.[0]?.content?.parts ?? []) {
-      if (part.inlineData) {
-        return part.inlineData.data;
-      }
-    }
-    throw new Error("Image generation failed.");
-  };
-
-  if (model === 'imagen-4.0-generate-001') {
-    return tryImagen();
-  }
-
-  if (model === 'gemini-2.5-flash-image') {
-    try {
-      return await tryGeminiImage();
-    } catch (error: any) {
-      if (isQuotaExhausted(error)) {
-        console.warn('Gemini 이미지 모델 할당량 초과(429). Imagen으로 폴백합니다.', error?.error?.message || error?.message);
-        return tryImagen();
-      }
-      throw error;
+  for (const part of response.candidates?.[0]?.content?.parts ?? []) {
+    if (part.inlineData) {
+      return part.inlineData.data;
     }
   }
-  
   throw new Error("Image generation failed.");
 };
 

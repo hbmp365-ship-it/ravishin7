@@ -2,6 +2,11 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { CopyIcon, CheckIcon, SpreadsheetIcon } from './icons';
 import { generateImage } from '../services/geminiService';
 import { uploadImageToS3 } from '../services/s3Service';
+import type { UserInput } from '../types';
+import { GEMINI_BANNER_IMAGE_ENRICH_SUFFIX } from '../constants';
+
+const withBannerImageEnrichment = (prompt: string): string =>
+  `${prompt.trim()}\n\n${GEMINI_BANNER_IMAGE_ENRICH_SUFFIX}`;
  
 // 희엽님 계정 테스트 
 interface ContentDisplayProps {
@@ -17,6 +22,10 @@ interface ContentDisplayProps {
   keyword?: string;
   cutCount?: number;
   cutTexts?: string[];
+  bannerContentType?: UserInput['bannerContentType'];
+  /** 배너 이미지 합성 프롬프트·생성 시 비율 반영 */
+  bannerAspectRatio?: string;
+  onRequestInstaCardWithReferenceText?: (text: string) => void;
 }
 
 // FIX: Define a specific type for image status to help with type inference.
@@ -130,7 +139,23 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
 };
 
 
-export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggestions, sources, isLoading, error, onSwitchToImageTab, onSuggestionClick, category, format, keyword, cutCount, cutTexts }) => {
+export const ContentDisplay: React.FC<ContentDisplayProps> = ({
+  content,
+  suggestions,
+  sources,
+  isLoading,
+  error,
+  onSwitchToImageTab,
+  onSuggestionClick,
+  category,
+  format,
+  keyword,
+  cutCount,
+  cutTexts,
+  bannerContentType,
+  bannerAspectRatio,
+  onRequestInstaCardWithReferenceText,
+}) => {
   const [copiedAll, setCopiedAll] = useState(false);
   const [isCsvCopied, setIsCsvCopied] = useState(false);
   const [imageStatuses, setImageStatuses] = useState<Record<string, ImageStatus>>({});
@@ -245,6 +270,17 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     return /기본 비율:|스타일:|📐 디자인 컨셉|📝 주요 텍스트 요소/.test(content);
   }, [content, format]);
 
+  /** 랭킹/골프장/용어사전 등 마크다운 텍스트 출력 — 배너 전용 파서(줄마다 return)를 쓰면 본문이 전부 버려짐 */
+  const isPlainTextBannerSubtype = useMemo(
+    () =>
+      format === 'ETC-BANNER' &&
+      (bannerContentType === '랭킹오브더월드' ||
+        bannerContentType === '어디로칠까' ||
+        bannerContentType === '골프용어사전' ||
+        bannerContentType === '기타 이벤트 배너'),
+    [format, bannerContentType]
+  );
+
   // 배너/포스터 포맷의 AI 이미지 생성 프롬프트 추출
   const bannerImagePrompt = useMemo(() => {
     if (!isBannerFormat || !content) return '';
@@ -274,6 +310,118 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     
     return promptLines.join('\n').trim();
   }, [content, isBannerFormat]);
+
+  /** 기타 이벤트 배너: 텍스트 기획만 나오므로 섹션에서 이미지용 프롬프트 합성 */
+  const eventBannerImagePrompt = useMemo(() => {
+    if (format !== 'ETC-BANNER' || bannerContentType !== '기타 이벤트 배너' || !content?.trim()) {
+      return '';
+    }
+
+    const lines = content.split('\n');
+    let currentSection: string | null = null;
+    const sectionTexts: Record<string, string[]> = {};
+
+    for (const line of lines) {
+      if (line.startsWith('후속 제안')) break;
+
+      const h2 = line.match(/^##\s*(.+)$/);
+      if (h2) {
+        currentSection = h2[1].trim();
+        if (!sectionTexts[currentSection]) sectionTexts[currentSection] = [];
+        continue;
+      }
+
+      if (currentSection) {
+        sectionTexts[currentSection]!.push(line);
+      }
+    }
+
+    const joinSection = (key: string) =>
+      (sectionTexts[key] || [])
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .join('\n')
+        .trim();
+
+    const headline = joinSection('헤드라인');
+    const sub = joinSection('서브카피');
+    const body = joinSection('본문');
+    const cta = joinSection('CTA');
+    const layout = joinSection('텍스트 배치 안내');
+
+    if (!headline && !sub && !body && !cta) return '';
+
+    const parts: string[] = [];
+    if (bannerAspectRatio?.trim()) {
+      parts.push(`Target aspect ratio / canvas: ${bannerAspectRatio.trim()}.`);
+    }
+    parts.push(
+      'Create a professional event banner or poster with strong visual design—not text alone on a flat background. Prefer flat illustration, vector-style graphics, icons, and shapes over photorealistic photos (photos only if essential). Ensure strong text contrast, clear hierarchy, optional semi-transparent panel behind type if needed. Include the following Korean copy as readable on-image typography (preserve wording exactly):'
+    );
+    if (headline) parts.push(`Main headline (largest, prominent): ${headline}`);
+    if (sub) parts.push(`Subheadline: ${sub}`);
+    if (body) parts.push(`Body text: ${body}`);
+    if (cta) parts.push(`CTA / button-style text: ${cta}`);
+    if (layout) parts.push(`Layout guidance: ${layout}`);
+    parts.push(
+      'Style: polished marketing banner, graphic/illustration-led, layered composition, typography optimized for legibility. Avoid plain solid fill with only text.'
+    );
+
+    return parts.join('\n');
+  }, [format, bannerContentType, content, bannerAspectRatio]);
+
+  /**
+   * 🎨 블록이 없는 배너 유형(랭킹/어디로칠까/용어사전 등) 및 AI가 이미지 프롬프트를 빠뜨린 경우:
+   * 본문을 바탕으로 이미지 생성용 프롬프트 합성
+   */
+  const contentDerivedBannerImagePrompt = useMemo(() => {
+    if (format !== 'ETC-BANNER' || !content?.trim()) return '';
+    if (bannerImagePrompt) return '';
+    if (eventBannerImagePrompt) return '';
+
+    const stripFollowUps = (text: string) => {
+      const idx = text.indexOf('\n후속 제안');
+      return (idx >= 0 ? text.slice(0, idx) : text).trim();
+    };
+    const raw = stripFollowUps(content);
+    const body = raw.length > 3500 ? `${raw.slice(0, 3500)}\n…` : raw;
+
+    const ratioLine = bannerAspectRatio?.trim()
+      ? `Target aspect ratio / canvas: ${bannerAspectRatio.trim()}. For value "720×200", use a wide horizontal strip banner (width much larger than height, web leaderboard style).`
+      : '';
+
+    const typeHint =
+      bannerContentType === '랭킹오브더월드'
+        ? 'Ranking / list style graphic for a Korean golf social post; use numbers, medals, ribbons, or list visuals where fitting.'
+        :       bannerContentType === '어디로칠까'
+          ? 'Golf course discovery banner for Korean audience; prefer stylized illustration, map graphic, or flat scenic graphic over heavy photorealism; keep Korean text readable.'
+          : bannerContentType === '골프용어사전'
+            ? 'Educational glossary graphic for social; icons or simple diagrams, one focal term if needed.'
+            : 'Polished banner or infographic-style visual summarizing the Korean content below.';
+
+    return [
+      ratioLine,
+      `Create a rich, designed graphic (not text-only on a flat solid color): ${typeHint}`,
+      'Prioritize illustration, vector/flat graphics, icons, charts, and shapes; use photography sparingly only if it serves the topic. Ensure Korean text has strong contrast and hierarchy.',
+      'Source material (Korean — use for theme and short on-image labels; do not render the entire text as dense body copy):',
+      body,
+      'No TeeShot or 티샷 branding or logo.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }, [format, content, bannerImagePrompt, eventBannerImagePrompt, bannerContentType, bannerAspectRatio]);
+
+  const effectiveBannerImagePrompt = useMemo(
+    () => bannerImagePrompt || eventBannerImagePrompt || contentDerivedBannerImagePrompt,
+    [bannerImagePrompt, eventBannerImagePrompt, contentDerivedBannerImagePrompt]
+  );
+
+  /** 본문 하단 ImagePrompt 패널: 🎨 섹션이 없을 때만 (중복 방지) */
+  const extraBannerImagePanelPrompt = useMemo(() => {
+    if (format !== 'ETC-BANNER') return '';
+    if (bannerImagePrompt) return '';
+    return eventBannerImagePrompt || contentDerivedBannerImagePrompt;
+  }, [format, bannerImagePrompt, eventBannerImagePrompt, contentDerivedBannerImagePrompt]);
 
   const showSpreadsheetButton = useMemo(() => {
     return isInstagramCardFormat || isNaverBlogFormat;
@@ -376,9 +524,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
       return;
     }
     
-    // 일반 배너/포스터인 경우 AI 이미지 생성 프롬프트만 복사
-    if (!bannerImagePrompt) return;
-    const success = await copyToClipboard(bannerImagePrompt);
+    // 일반 배너·기타 이벤트 배너(합성 프롬프트) 등
+    if (!effectiveBannerImagePrompt) return;
+    const success = await copyToClipboard(effectiveBannerImagePrompt);
     if (success) {
       setBannerPromptCopied(true);
       setTimeout(() => setBannerPromptCopied(false), 2000);
@@ -417,27 +565,57 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     }
   }, []);
 
+  /** 본문 기반 배너 패널(랭킹·용어 등): API에 배너 시각 보강 접미사 포함 */
+  const handleGenerateDerivedBannerImage = useCallback(async (prompt: string) => {
+    setImageStatuses((prev) => ({ ...prev, [prompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
+    try {
+      const base64Image = await generateImage(withBannerImageEnrichment(prompt));
+      let s3Url: string | null = null;
+      try {
+        s3Url = await uploadImageToS3(base64Image, prompt);
+      } catch (uploadErr) {
+        console.error('S3 업로드 실패:', uploadErr);
+      }
+      setImageStatuses((prev) => ({
+        ...prev,
+        [prompt]: {
+          url: `data:image/jpeg;base64,${base64Image}`,
+          s3Url,
+          isLoading: false,
+          error: null,
+        },
+      }));
+    } catch (e) {
+      console.error('Derived banner image generation failed:', e);
+      setImageStatuses((prev) => ({
+        ...prev,
+        [prompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' },
+      }));
+    }
+  }, []);
+
   const handleGenerateBannerImage = useCallback(async () => {
-    if (!bannerImagePrompt) return;
+    if (!effectiveBannerImagePrompt) return;
     
     setIsBannerImageGenerating(true);
+    const promptKey = effectiveBannerImagePrompt;
     try {
-      // 배너/포스터 포맷은 항상 gemini-2.5-flash-image 모델 사용
-      setImageStatuses(prev => ({ ...prev, [bannerImagePrompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
+      // 배너/포스터 포맷: Gemini 네이티브 이미지 모델
+      setImageStatuses(prev => ({ ...prev, [promptKey]: { url: null, s3Url: null, isLoading: true, error: null } }));
       try {
-        const base64Image = await generateImage(bannerImagePrompt, 'gemini-2.5-flash-image');
+        const base64Image = await generateImage(withBannerImageEnrichment(promptKey));
         
         // S3에 업로드하여 전체 URL 가져오기
         let s3Url: string | null = null;
         try {
-          s3Url = await uploadImageToS3(base64Image, bannerImagePrompt);
+          s3Url = await uploadImageToS3(base64Image, promptKey);
         } catch (uploadErr) {
           console.error('S3 업로드 실패:', uploadErr);
         }
         
         setImageStatuses(prev => ({
           ...prev,
-          [bannerImagePrompt]: {
+          [promptKey]: {
             url: `data:image/jpeg;base64,${base64Image}`,
             s3Url: s3Url,
             isLoading: false,
@@ -448,7 +626,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         console.error("배너 이미지 생성 실패:", e);
         setImageStatuses(prev => ({
           ...prev,
-          [bannerImagePrompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' }
+          [promptKey]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' }
         }));
       }
     } catch (error) {
@@ -456,7 +634,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     } finally {
       setIsBannerImageGenerating(false);
     }
-  }, [bannerImagePrompt]);
+  }, [effectiveBannerImagePrompt]);
 
   const handleGenerateAllImages = useCallback(async () => {
     if (!imagePrompts.length) return;
@@ -487,8 +665,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         }
 
         try {
-            // 각 이미지를 순차적으로 생성 (gemini-2.5-flash-image 모델 사용 - 빠른 생성)
-            const base64Image = await generateImage(prompt, 'gemini-2.5-flash-image');
+            // 각 이미지를 순차적으로 생성 (Gemini 네이티브 이미지)
+            const base64Image = await generateImage(prompt);
             
             // S3에 업로드하여 전체 URL 가져오기
             let s3Url: string | null = null;
@@ -1907,8 +2085,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
         return;
       }
       
-      // 배너/포스터 포맷 처리
-      if (isBannerFormat) {
+      // 배너/포스터 포맷 처리 (일반·인포그래픽 등 구조화 출력만 — 텍스트 전용 유형은 일반 본문 렌더로 처리)
+      if (isBannerFormat && !isPlainTextBannerSubtype) {
         if (line.match(/^제목(\(.*\))?:/)) {
           pushCard();
           pushTitle();
@@ -2505,9 +2683,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                   <ImagePrompt 
                     text={bannerImagePrompt} 
                     onGenerate={(prompt) => {
-                      // 배너/포스터 포맷은 항상 gemini-2.5-flash-image 모델 사용
+                      // 배너/포스터 포맷: Gemini 네이티브 이미지 모델
                       setImageStatuses(prev => ({ ...prev, [prompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
-                      generateImage(prompt, 'gemini-2.5-flash-image')
+                      generateImage(withBannerImageEnrichment(prompt))
                         .then(async (base64Image) => {
                           let s3Url: string | null = null;
                           try {
@@ -2552,6 +2730,36 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
             <div className="space-y-3">
               {bannerGuidelinesContent}
             </div>
+          </div>
+        );
+      }
+      if (format === 'ETC-BANNER' && extraBannerImagePanelPrompt) {
+        const panelPrompt = extraBannerImagePanelPrompt;
+        const panelStatus =
+          imageStatuses[panelPrompt] || {
+            url: null,
+            s3Url: null,
+            isLoading: false,
+            error: null,
+          };
+        const isEventPanel = Boolean(eventBannerImagePrompt && panelPrompt === eventBannerImagePrompt);
+        elements.push(
+          <div key="extra-banner-image-panel" className="mb-8 pt-6 border-t border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+              <span className="mr-2">🎨</span>
+              {isEventPanel ? '이벤트 배너 이미지' : '배너 이미지'}
+            </h3>
+            <p className="text-sm text-gray-600 mb-3">
+              {isEventPanel
+                ? '위 문구를 반영한 배너 이미지를 생성합니다. 상단의 "이미지 생성하기"와 동일한 프롬프트를 사용합니다.'
+                : '생성된 본문을 바탕으로 배너 이미지를 만들 수 있습니다. 상단의 "이미지 생성하기"와 동일한 프롬프트를 사용합니다.'}
+            </p>
+            <ImagePrompt
+              text={panelPrompt}
+              onGenerate={handleGenerateDerivedBannerImage}
+              onSwitchToImageTab={onSwitchToImageTab}
+              status={panelStatus}
+            />
           </div>
         );
       }
@@ -2628,7 +2836,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
     }
     
     return elements;
-  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, isNaverBlogFormat, isBannerFormat, bannerImagePrompt, sources]);
+  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, handleGenerateDerivedBannerImage, isNaverBlogFormat, isBannerFormat, isPlainTextBannerSubtype, bannerImagePrompt, bannerContentType, eventBannerImagePrompt, extraBannerImagePanelPrompt, sources]);
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
@@ -2658,7 +2866,16 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                     {`생성된 이미지 다운로드 (${generatedImageUrls.length})`}
                  </button>
             )}
-            {isBannerFormat && bannerImagePrompt && (
+            {format === 'ETC-BANNER' && bannerContentType === '어디로칠까' && content.trim() && onRequestInstaCardWithReferenceText && (
+              <button
+                type="button"
+                onClick={() => onRequestInstaCardWithReferenceText(content)}
+                className="flex items-center text-sm bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+              >
+                인스타 카드로 만들기
+              </button>
+            )}
+            {isBannerFormat && effectiveBannerImagePrompt && (
               <>
                 <button 
                   onClick={handleGenerateBannerImage} 
@@ -2678,7 +2895,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
-                      이미지 생성
+                      이미지 생성하기
                     </>
                   )}
                 </button>
@@ -2755,9 +2972,13 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, suggest
                         ));
                       }
                       
-                      // 키워드를 추출할 수 없을 때 기본 메시지
+                      // 추천이 없을 때 (로딩 아님 — 잘못된 문구로 오해 방지)
                       return (
-                        <p className="text-gray-500 text-sm">{isInfographicContent ? '연관 인포그래픽 주제를 생성 중입니다...' : '연관 키워드를 생성 중입니다...'}</p>
+                        <p className="text-gray-500 text-sm">
+                          {isInfographicContent
+                            ? '이번 결과에는 연관 인포그래픽 주제 추천이 없습니다.'
+                            : '이번 결과에는 연관 키워드·주제 추천이 없습니다. 다른 포맷이나 후속 제안이 포함된 응답에서는 버튼이 표시됩니다.'}
+                        </p>
                       );
                     })()}
                   </div>

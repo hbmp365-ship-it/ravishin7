@@ -17,6 +17,7 @@ const App: React.FC = () => {
   const [imageGeneratorPrompt, setImageGeneratorPrompt] = useState<string>('');
   const [lastUserInput, setLastUserInput] = useState<UserInput | null>(null);
   const [suggestedKeyword, setSuggestedKeyword] = useState<string>('');
+  const [instaCardPrefill, setInstaCardPrefill] = useState<string | null>(null);
 
 
   const handleGenerate = useCallback(async (userInput: UserInput) => {
@@ -57,6 +58,14 @@ const App: React.FC = () => {
     setActiveTab('image');
   }, []);
 
+  const handleConsumeInstaCardPrefill = useCallback(() => {
+    setInstaCardPrefill(null);
+  }, []);
+
+  const handleRequestInstaCardWithReferenceText = useCallback((text: string) => {
+    setInstaCardPrefill(text);
+  }, []);
+
   const handleSuggestionClick = useCallback((suggestion: string) => {
     if (lastUserInput) {
       const newUserInput: UserInput = {
@@ -80,6 +89,8 @@ const App: React.FC = () => {
                   onGenerate={handleGenerate} 
                   isLoading={isLoading} 
                   suggestedKeyword={suggestedKeyword}
+                  instaCardPrefill={instaCardPrefill}
+                  onConsumeInstaCardPrefill={handleConsumeInstaCardPrefill}
                 />
              </div>
           </div>
@@ -97,6 +108,9 @@ const App: React.FC = () => {
               keyword={lastUserInput?.keyword}
               cutCount={lastUserInput?.cutCount}
               cutTexts={lastUserInput?.cutTexts}
+              bannerContentType={lastUserInput?.bannerContentType}
+              bannerAspectRatio={lastUserInput?.aspectRatio}
+              onRequestInstaCardWithReferenceText={handleRequestInstaCardWithReferenceText}
             />
           </div>
         </div>

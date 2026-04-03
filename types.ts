@@ -23,7 +23,11 @@ export interface UserInput {
   isGolfRelated?: boolean;
   cutCount?: number;
   cutTexts?: string[];
-  bannerContentType?: '일반' | '인포그래픽';
+  bannerContentType?: '일반' | '인포그래픽' | '랭킹오브더월드' | '어디로칠까' | '골프용어사전' | '기타 이벤트 배너';
+  /** 어디로칠까: 국내 골프장 이름 */
+  bannerGolfCourseName?: string;
+  /** 골프용어사전: 입문자 | 중급자 | 고급자 */
+  golfDictionaryLevel?: '입문자' | '중급자' | '고급자';
 }
 
 export interface GeneratedContent {

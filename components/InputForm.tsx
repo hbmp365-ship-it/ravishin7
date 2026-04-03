@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { UserInput } from '../types';
+
+type BannerContentType = NonNullable<UserInput['bannerContentType']>;
 import { CATEGORIES, BLOG_CATEGORIES, FORMATS, BLOG_LENGTHS, TONES, VIDEO_LENGTHS, CATEGORY_KEYWORDS, BLOG_CATEGORY_KEYWORDS, FORMAT_LABELS, ASPECT_RATIOS, BANNER_STYLES, THEME_OPTIONS, IMAGE_GENERATOR_TOOLS, ALIGNMENT_OPTIONS } from '../constants';
 import { SparklesIcon, QuestionMarkCircleIcon, RefreshIcon, InstagramIcon, BlogIcon, YouTubeShortsIcon, BannerIcon } from './icons';
 
@@ -7,6 +9,9 @@ interface InputFormProps {
   onGenerate: (userInput: UserInput) => void;
   isLoading: boolean;
   suggestedKeyword: string;
+  /** 어디로칠까 → 인스타 카드: 참고 텍스트로 채우기 */
+  instaCardPrefill?: string | null;
+  onConsumeInstaCardPrefill?: () => void;
 }
 
 const formatIcons: { [key: string]: React.FC<React.SVGProps<SVGSVGElement>> } = {
@@ -17,7 +22,22 @@ const formatIcons: { [key: string]: React.FC<React.SVGProps<SVGSVGElement>> } = 
 };
 
 
-export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, suggestedKeyword }) => {
+const BANNER_CONTENT_TYPE_OPTIONS: { value: BannerContentType; label: string }[] = [
+  { value: '일반', label: '일반' },
+  { value: '인포그래픽', label: '인포그래픽' },
+  { value: '기타 이벤트 배너', label: '기타 이벤트 배너' },
+  { value: '랭킹오브더월드', label: '랭킹오브더월드' },
+  { value: '어디로칠까', label: '어디로칠까' },
+  { value: '골프용어사전', label: '골프용어사전' },
+];
+
+export const InputForm: React.FC<InputFormProps> = ({
+  onGenerate,
+  isLoading,
+  suggestedKeyword,
+  instaCardPrefill,
+  onConsumeInstaCardPrefill,
+}) => {
   const [isGolfRelated, setIsGolfRelated] = useState(true);
   const [format, setFormat] = useState(FORMATS[0]);
   const [category, setCategory] = useState(CATEGORIES[0].name);
@@ -57,7 +77,17 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
   const [subheadline, setSubheadline] = useState('');
   const [bodyCopy, setBodyCopy] = useState('');
   const [cta, setCta] = useState('');
-  const [bannerContentType, setBannerContentType] = useState<'일반' | '인포그래픽'>('일반');
+  const [bannerContentType, setBannerContentType] = useState<BannerContentType>('일반');
+  const [bannerGolfCourseName, setBannerGolfCourseName] = useState('');
+  const [golfDictionaryLevel, setGolfDictionaryLevel] = useState<'입문자' | '중급자' | '고급자'>('입문자');
+
+  useEffect(() => {
+    if (instaCardPrefill != null && instaCardPrefill !== '') {
+      setFormat('INSTAGRAM-CARD');
+      setUserText(instaCardPrefill);
+      onConsumeInstaCardPrefill?.();
+    }
+  }, [instaCardPrefill, onConsumeInstaCardPrefill]);
 
   useEffect(() => {
     if (suggestedKeyword) {
@@ -99,20 +129,25 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
     }
   }, [format, getRandomKeywordForCategory, isKeywordManuallySet]);
 
+  const isEventBannerForm = format === 'ETC-BANNER' && bannerContentType === '기타 이벤트 배너';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const isBlogFormat = format === 'NAVER-BLOG/BAND';
     const isBannerFormat = format === 'ETC-BANNER';
     const currentCategory = isBlogFormat ? blogCategory : category;
     
-    // 배너/포스터 포맷일 때 헤드라인 필수 체크 (인포그래픽이 아닐 때만)
-    if (isBannerFormat && bannerContentType === '일반' && !headline.trim()) {
-      alert('헤드라인을 입력해주세요.');
+    // 배너/포스터 — 일반·기타 이벤트 배너: 제목(헤드라인) 필수
+    if (isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') && !headline.trim()) {
+      alert(bannerContentType === '기타 이벤트 배너' ? '제목을 입력해주세요.' : '헤드라인을 입력해주세요.');
       return;
     }
-    // 인포그래픽 선택 시 키워드 필수 체크
-    if (isBannerFormat && bannerContentType === '인포그래픽' && !keyword.trim()) {
+    if (isBannerFormat && (bannerContentType === '인포그래픽' || bannerContentType === '랭킹오브더월드') && !keyword.trim()) {
       alert('주제/키워드를 입력해주세요.');
+      return;
+    }
+    if (isBannerFormat && bannerContentType === '어디로칠까' && !bannerGolfCourseName.trim()) {
+      alert('골프장 이름을 입력해주세요.');
       return;
     }
     
@@ -122,7 +157,12 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       isGolfRelated,
       category: format === 'INSTAGRAM-CARD' ? '데일리 뉴스' : (currentCategory === '직접 입력' ? customCategory : currentCategory),
       format,
-      keyword: isBannerFormat && bannerContentType === '인포그래픽' ? keyword : (isBannerFormat ? '' : keyword),
+      keyword:
+        isBannerFormat && (bannerContentType === '인포그래픽' || bannerContentType === '랭킹오브더월드')
+          ? keyword
+          : isBannerFormat
+            ? ''
+            : keyword,
       userText: isBannerFormat ? '' : userText,
       cardCount,
       blogLength,
@@ -131,15 +171,17 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
       sceneCount,
       tone: isBannerFormat || isYouTubeFormat ? '' : tone,
       aspectRatio: isBannerFormat ? aspectRatio : undefined,
-      theme: isBannerFormat ? theme : undefined,
-      style: isBannerFormat ? style : undefined,
-      imageGeneratorTool: isBannerFormat ? imageGeneratorTool : undefined,
-      alignment: isBannerFormat ? alignment : undefined,
-      headline: isBannerFormat && bannerContentType === '일반' ? headline : undefined,
-      subheadline: isBannerFormat && bannerContentType === '일반' ? subheadline : undefined,
-      bodyCopy: isBannerFormat && bannerContentType === '일반' ? bodyCopy : undefined,
-      cta: isBannerFormat && bannerContentType === '일반' ? cta : undefined,
+      theme: isBannerFormat && bannerContentType !== '기타 이벤트 배너' ? theme : undefined,
+      style: isBannerFormat && bannerContentType !== '기타 이벤트 배너' ? style : undefined,
+      imageGeneratorTool: isBannerFormat && bannerContentType !== '기타 이벤트 배너' ? imageGeneratorTool : undefined,
+      alignment: isBannerFormat && bannerContentType !== '기타 이벤트 배너' ? alignment : undefined,
+      headline: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? headline : undefined,
+      subheadline: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? subheadline : undefined,
+      bodyCopy: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? bodyCopy : undefined,
+      cta: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? cta : undefined,
       bannerContentType: isBannerFormat ? bannerContentType : undefined,
+      bannerGolfCourseName: isBannerFormat && bannerContentType === '어디로칠까' ? bannerGolfCourseName.trim() : undefined,
+      golfDictionaryLevel: isBannerFormat && bannerContentType === '골프용어사전' ? golfDictionaryLevel : undefined,
       cutCount: isYouTubeFormat ? cutCount : undefined,
       cutTexts: isYouTubeFormat ? cutTexts : undefined,
     };
@@ -269,6 +311,36 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
           })}
         </div>
       </div>
+
+      {format === 'ETC-BANNER' && (
+        <>
+          <div>
+            <label htmlFor="bannerContentType" className={`${commonLabelClass} mb-1`}>컨텐츠 유형</label>
+            <select
+              id="bannerContentType"
+              value={bannerContentType}
+              onChange={(e) => setBannerContentType(e.target.value as BannerContentType)}
+              className={selectInputClass}
+            >
+              {BANNER_CONTENT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="aspectRatio" className={`${commonLabelClass} mb-1`}>기본 비율</label>
+            <select id="aspectRatio" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className={selectInputClass}>
+              {ASPECT_RATIOS.map((ratio) => (
+                <option key={ratio.value} value={ratio.value}>
+                  {ratio.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
       
       {isGolfRelated && format !== 'NAVER-BLOG/BAND' && format !== 'ETC-BANNER' && format !== 'INSTAGRAM-CARD' && format !== 'YOUTUBE-SHORTFORM' && (
         <div>
@@ -477,45 +549,6 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
 
       {format === 'ETC-BANNER' && (
         <>
-          <div>
-            <label htmlFor="aspectRatio" className={`${commonLabelClass} mb-1`}>기본 비율</label>
-            <select id="aspectRatio" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className={selectInputClass}>
-              {ASPECT_RATIOS.map(ratio => <option key={ratio.value} value={ratio.value}>{ratio.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={`${commonLabelClass} mb-2`}>컨텐츠 유형</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setBannerContentType('일반')}
-                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                  bannerContentType === '일반'
-                    ? 'border-[#004B49] bg-[#004B49]/5 text-[#004B49]'
-                    : 'border-gray-200 hover:border-[#004B49]/50 text-gray-600'
-                }`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span className="text-sm font-medium">일반</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setBannerContentType('인포그래픽')}
-                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                  bannerContentType === '인포그래픽'
-                    ? 'border-[#004B49] bg-[#004B49]/5 text-[#004B49]'
-                    : 'border-gray-200 hover:border-[#004B49]/50 text-gray-600'
-                }`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                <span className="text-sm font-medium">인포그래픽</span>
-              </button>
-            </div>
-          </div>
           {bannerContentType === '인포그래픽' && (
             <>
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
@@ -538,6 +571,80 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
                 />
               </div>
             </>
+          )}
+          {bannerContentType === '랭킹오브더월드' && (
+            <>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg mb-4">
+                <p className="text-sm text-amber-900">
+                  골프와 연관된 <strong>랭킹 주제</strong>를 입력하면 Top 10과 인스타 포스팅 글을 생성합니다.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="keyword-ranking" className={`${commonLabelClass} mb-1`}>랭킹 주제 / 키워드</label>
+                <input
+                  type="text"
+                  id="keyword-ranking"
+                  value={keyword}
+                  onChange={(e) => {
+                    setKeyword(e.target.value);
+                    setIsKeywordManuallySet(true);
+                  }}
+                  className={commonInputClass}
+                  placeholder="예: 국내 파3 명문 코스, 스크린골프 인기 브랜드"
+                />
+              </div>
+            </>
+          )}
+          {bannerContentType === '어디로칠까' && (
+            <>
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg mb-4">
+                <p className="text-sm text-emerald-900">
+                  국내 골프장 이름을 입력하면 정보 요약과 인스타 포스팅 글을 만듭니다. 생성 후 결과 화면에서 <strong>인스타 카드로 만들기</strong>로 참고 텍스트를 넘길 수 있습니다.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="bannerGolfCourseName" className={`${commonLabelClass} mb-1`}>골프장 이름</label>
+                <input
+                  type="text"
+                  id="bannerGolfCourseName"
+                  value={bannerGolfCourseName}
+                  onChange={(e) => setBannerGolfCourseName(e.target.value)}
+                  className={commonInputClass}
+                  placeholder="예: 제주 오라CC, 안양 컨트리클럽"
+                />
+              </div>
+            </>
+          )}
+          {bannerContentType === '골프용어사전' && (
+            <>
+              <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg mb-4">
+                <p className="text-sm text-violet-900">
+                  난이도에 맞는 골프 용어 10개와 인스타 포스팅 글을 생성합니다.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="golfDictionaryLevel" className={`${commonLabelClass} mb-1`}>난이도</label>
+                <select
+                  id="golfDictionaryLevel"
+                  value={golfDictionaryLevel}
+                  onChange={(e) => setGolfDictionaryLevel(e.target.value as '입문자' | '중급자' | '고급자')}
+                  className={selectInputClass}
+                >
+                  <option value="입문자">입문자</option>
+                  <option value="중급자">중급자</option>
+                  <option value="고급자">고급자</option>
+                </select>
+              </div>
+            </>
+          )}
+          {isEventBannerForm && (
+          <>
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-2">
+              <p className="text-sm text-slate-800">
+                <strong>기타 이벤트 배너</strong>: <span className="text-red-600 font-medium">제목</span>만 필수입니다. 배너에 넣을 <strong>문구(헤드라인·서브카피·본문·CTA)</strong>를 정리해 드리며, 위에서 고른 <strong>기본 비율</strong>은 이미지 생성 시 반영됩니다. 입력한 문구는 그대로 두고, 비운 칸만 AI가 채웁니다.
+              </p>
+            </div>
+          </>
           )}
           {bannerContentType === '일반' && (
           <>
@@ -678,14 +785,23 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
               💡 선택된 모델에 최적화된 프롬프트 제공
             </p>
           </div>
+          </>
+          )}
+          {(isEventBannerForm || bannerContentType === '일반') && (
+          <>
           <div>
             <div className="flex items-center justify-between mb-1">
               <label htmlFor="headline" className={commonLabelClass}>
-                헤드라인 <span className="text-red-500">*</span>
+                {isEventBannerForm ? '제목' : '헤드라인'} <span className="text-red-500">*</span>
               </label>
+              {!isEventBannerForm && (
               <span className={`text-xs ${headline.length > 8 ? 'text-blue-600 font-medium' : headline.length > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
                 {headline.length}자 {headline.length > 8 ? '✓ 그대로 사용' : headline.length > 0 ? '→ 확장 가능' : ''}
               </span>
+              )}
+              {isEventBannerForm && headline.length > 0 && (
+                <span className="text-xs text-blue-600 font-medium">입력 그대로 사용 (변형 금지)</span>
+              )}
             </div>
             <input
               type="text"
@@ -693,10 +809,13 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
               value={headline}
               onChange={(e) => setHeadline(e.target.value)}
               className={commonInputClass}
-              placeholder="배너/포스터의 메인 메시지를 입력하세요"
+              placeholder={isEventBannerForm ? '이벤트 배너 제목을 입력하세요' : '배너/포스터의 메인 메시지를 입력하세요'}
               required
             />
-            {headline.length > 0 && (
+            {isEventBannerForm && headline.length > 0 && (
+              <p className="mt-1 text-xs text-blue-600">제목은 길이와 관계없이 원문 그대로 출력됩니다.</p>
+            )}
+            {!isEventBannerForm && headline.length > 0 && (
               <p className={`mt-1 text-xs ${headline.length > 8 ? 'text-blue-600' : 'text-orange-600'}`}>
                 {headline.length > 8 
                   ? '✓ 입력하신 텍스트가 그대로 사용됩니다.' 
@@ -707,12 +826,15 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
           <div>
             <div className="flex items-center justify-between mb-1">
               <label htmlFor="subheadline" className={commonLabelClass}>
-                서브헤드라인 <span className="text-gray-400 text-xs">(선택)</span>
+                {isEventBannerForm ? '부제목' : '서브헤드라인'} <span className="text-gray-400 text-xs">(선택)</span>
               </label>
-              {subheadline.length > 0 && (
+              {!isEventBannerForm && subheadline.length > 0 && (
                 <span className={`text-xs ${subheadline.length > 8 ? 'text-blue-600 font-medium' : 'text-orange-600 font-medium'}`}>
                   {subheadline.length}자 {subheadline.length > 8 ? '✓ 그대로 사용' : '→ 확장 가능'}
                 </span>
+              )}
+              {isEventBannerForm && subheadline.length > 0 && (
+                <span className="text-xs text-blue-600 font-medium">입력 그대로 사용</span>
               )}
             </div>
             <input
@@ -721,9 +843,12 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
               value={subheadline}
               onChange={(e) => setSubheadline(e.target.value)}
               className={commonInputClass}
-              placeholder="보조 메시지를 입력하세요 (입력하지 않으면 자동 생성)"
+              placeholder={isEventBannerForm ? '부제목 (비우면 AI가 제목에 맞게 작성)' : '보조 메시지를 입력하세요 (입력하지 않으면 자동 생성)'}
             />
-            {subheadline.length > 0 && (
+            {isEventBannerForm && subheadline.length > 0 && (
+              <p className="mt-1 text-xs text-blue-600">입력한 부제목은 수정 없이 그대로 사용됩니다.</p>
+            )}
+            {!isEventBannerForm && subheadline.length > 0 && (
               <p className={`mt-1 text-xs ${subheadline.length > 8 ? 'text-blue-600' : 'text-orange-600'}`}>
                 {subheadline.length > 8 
                   ? '✓ 입력하신 텍스트가 그대로 사용됩니다.' 
@@ -732,36 +857,42 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
             )}
             {subheadline.length === 0 && (
               <p className="mt-1 text-xs text-gray-400">
-                입력하지 않으면 헤드라인에 어울리는 서브헤드라인을 자동으로 생성합니다.
+                {isEventBannerForm ? '비워 두면 제목에 맞는 부제목을 AI가 작성합니다.' : '입력하지 않으면 헤드라인에 어울리는 서브헤드라인을 자동으로 생성합니다.'}
               </p>
             )}
           </div>
           <div>
             <label htmlFor="bodyCopy" className={commonLabelClass}>
-              바디카피 <span className="text-gray-400 text-xs">(선택)</span>
+              {isEventBannerForm ? '본문' : '바디카피'} <span className="text-gray-400 text-xs">(선택)</span>
             </label>
             <textarea
               id="bodyCopy"
               value={bodyCopy}
               onChange={(e) => setBodyCopy(e.target.value)}
               className={`${commonInputClass} h-24`}
-              placeholder="배너/포스터 본문 내용을 입력하세요 (입력하지 않으면 자동 생성)"
+              placeholder={isEventBannerForm ? '본문 (비우면 AI가 제목에 맞게 작성)' : '배너/포스터 본문 내용을 입력하세요 (입력하지 않으면 자동 생성)'}
             />
+            {isEventBannerForm && bodyCopy.length > 0 && (
+              <p className="mt-1 text-xs text-blue-600">입력한 본문은 수정 없이 그대로 사용됩니다.</p>
+            )}
             {bodyCopy.length === 0 && (
               <p className="mt-1 text-xs text-gray-400">
-                입력하지 않으면 헤드라인에 어울리는 바디카피를 자동으로 생성합니다.
+                {isEventBannerForm ? '비워 두면 제목에 맞는 본문을 AI가 작성합니다.' : '입력하지 않으면 헤드라인에 어울리는 바디카피를 자동으로 생성합니다.'}
               </p>
             )}
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">
               <label htmlFor="cta" className={commonLabelClass}>
-                CTA (행동 유도 문구) <span className="text-gray-400 text-xs">(선택)</span>
+                {isEventBannerForm ? 'CTA 문구' : 'CTA (행동 유도 문구)'} <span className="text-gray-400 text-xs">(선택)</span>
               </label>
-              {cta.length > 0 && (
+              {!isEventBannerForm && cta.length > 0 && (
                 <span className={`text-xs ${cta.length > 8 ? 'text-blue-600 font-medium' : 'text-orange-600 font-medium'}`}>
                   {cta.length}자 {cta.length > 8 ? '✓ 그대로 사용' : '→ 확장 가능'}
                 </span>
+              )}
+              {isEventBannerForm && cta.length > 0 && (
+                <span className="text-xs text-blue-600 font-medium">입력 그대로 사용</span>
               )}
             </div>
             <input
@@ -770,9 +901,12 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
               value={cta}
               onChange={(e) => setCta(e.target.value)}
               className={commonInputClass}
-              placeholder="예: 지금 예약하기, 더 알아보기 등 (입력하지 않으면 자동 생성)"
+              placeholder={isEventBannerForm ? '예: 지금 신청하기 (비우면 AI가 작성)' : '예: 지금 예약하기, 더 알아보기 등 (입력하지 않으면 자동 생성)'}
             />
-            {cta.length > 0 && (
+            {isEventBannerForm && cta.length > 0 && (
+              <p className="mt-1 text-xs text-blue-600">입력한 CTA는 수정 없이 그대로 사용됩니다.</p>
+            )}
+            {!isEventBannerForm && cta.length > 0 && (
               <p className={`mt-1 text-xs ${cta.length > 8 ? 'text-blue-600' : 'text-orange-600'}`}>
                 {cta.length > 8 
                   ? '✓ 입력하신 텍스트가 그대로 사용됩니다.' 
@@ -781,7 +915,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onGenerate, isLoading, sug
             )}
             {cta.length === 0 && (
               <p className="mt-1 text-xs text-gray-400">
-                입력하지 않으면 헤드라인에 어울리는 CTA를 자동으로 생성합니다.
+                {isEventBannerForm ? '비워 두면 제목에 맞는 CTA를 AI가 작성합니다.' : '입력하지 않으면 헤드라인에 어울리는 CTA를 자동으로 생성합니다.'}
               </p>
             )}
           </div>

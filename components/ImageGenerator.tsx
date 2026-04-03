@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { generateImage } from '../services/geminiService';
 import { uploadImageToS3, deleteImageFromS3 } from '../services/s3Service';
 import { SparklesIcon, CopyIcon, CheckIcon, MailIcon } from './icons';
-import { IMAGE_MODELS } from '../constants';
+import { IMAGE_MODELS, GEMINI_NATIVE_IMAGE_MODEL_ID } from '../constants';
 
 interface ImageGeneratorProps {
   initialPrompt?: string;
@@ -10,7 +10,6 @@ interface ImageGeneratorProps {
 
 export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt }) => {
   const [prompt, setPrompt] = useState('');
-  const [selectedModel, setSelectedModel] = useState(IMAGE_MODELS[0].id);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +39,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
     setUploadError(null);
 
     try {
-      const base64Image = await generateImage(p, selectedModel);
+      const base64Image = await generateImage(p);
       setImageUrl(`data:image/jpeg;base64,${base64Image}`);
       
       // 이미지 생성 후 자동으로 S3에 업로드 (프롬프트 전달)
@@ -61,7 +60,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
     } finally {
       setIsLoading(false);
     }
-  }, [selectedModel]);
+  }, []);
 
   useEffect(() => {
     if (initialPrompt) {
@@ -202,21 +201,11 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
             />
         </div>
         <div>
-            <label className="block text-sm font-medium text-gray-600 mb-2">이미지 생성 모델</label>
-            <div className="flex rounded-md shadow-sm">
-                {IMAGE_MODELS.map((model, index) => (
-                    <button
-                        key={model.id}
-                        type="button"
-                        onClick={() => setSelectedModel(model.id)}
-                        className={`relative inline-flex items-center justify-center px-4 py-2 text-sm font-medium transition-colors focus:z-10 focus:outline-none focus:ring-2 focus:ring-[#1FA77A] ${
-                            selectedModel === model.id ? 'bg-[#1FA77A] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
-                        } ${index === 0 ? 'rounded-l-md' : ''} ${index === IMAGE_MODELS.length - 1 ? 'rounded-r-md' : '-ml-px border-l-0'} border border-gray-300`}
-                    >
-                        {model.label}
-                    </button>
-                ))}
-            </div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">이미지 생성 모델</label>
+            <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 font-mono">
+              {GEMINI_NATIVE_IMAGE_MODEL_ID}
+            </p>
+            <p className="mt-1 text-xs text-gray-500">{IMAGE_MODELS[0]?.label}</p>
         </div>
         <button type="submit" disabled={isLoading || !prompt.trim()} className="w-full flex items-center justify-center bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2.5 px-4 rounded-md transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100">
           {isLoading ? (
