@@ -33,6 +33,8 @@ interface ContentDisplayProps {
   bannerTheme?: string;
   /** 배너 배경 생성 시 예시 디자인 참고(멀티모달) */
   bannerDesignReferenceImage?: UserInput['bannerDesignReferenceImage'];
+  /** 폼 하단 사용자 입력: 이미지 생성 시 API에 병합 */
+  bannerAiImagePromptHint?: string;
   onRequestInstaCardWithReferenceText?: (text: string) => void;
 }
 
@@ -169,6 +171,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   bannerAlignment,
   bannerTheme,
   bannerDesignReferenceImage,
+  bannerAiImagePromptHint,
   onRequestInstaCardWithReferenceText,
 }) => {
   const [copiedAll, setCopiedAll] = useState(false);
@@ -381,9 +384,13 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     parts.push(
       'Style: polished marketing banner, graphic/illustration-led, layered composition, typography optimized for legibility. Avoid plain solid fill with only text.'
     );
+    const hint = bannerAiImagePromptHint?.trim();
+    if (hint) {
+      parts.push(`User-specified image instructions (follow completely): ${hint}`);
+    }
 
     return parts.join('\n');
-  }, [format, bannerContentType, content, bannerAspectRatio]);
+  }, [format, bannerContentType, content, bannerAspectRatio, bannerAiImagePromptHint]);
 
   /**
    * 🎨 블록이 없는 배너 유형(랭킹/어디로칠까/용어사전 등) 및 AI가 이미지 프롬프트를 빠뜨린 경우:
@@ -421,10 +428,13 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       'Source material (Korean — use for theme and short on-image labels; do not render the entire text as dense body copy):',
       body,
       'No TeeShot or 티샷 branding or logo.',
+      bannerAiImagePromptHint?.trim()
+        ? `\nUser-specified image instructions (follow completely):\n${bannerAiImagePromptHint.trim()}`
+        : '',
     ]
       .filter(Boolean)
       .join('\n');
-  }, [format, content, bannerImagePrompt, eventBannerImagePrompt, bannerContentType, bannerAspectRatio]);
+  }, [format, content, bannerImagePrompt, eventBannerImagePrompt, bannerContentType, bannerAspectRatio, bannerAiImagePromptHint]);
 
   const effectiveBannerImagePrompt = useMemo(
     () => bannerImagePrompt || eventBannerImagePrompt || contentDerivedBannerImagePrompt,
@@ -595,8 +605,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     () => ({
       ...nanoBananaBannerOptions,
       designReferenceImageAttached: Boolean(bannerDesignReferenceImage?.dataBase64),
+      userImagePromptHint: bannerAiImagePromptHint?.trim() || undefined,
     }),
-    [nanoBananaBannerOptions, bannerDesignReferenceImage]
+    [nanoBananaBannerOptions, bannerDesignReferenceImage, bannerAiImagePromptHint]
   );
 
   const bannerImageGenOptions: GenerateImageOptions | undefined = useMemo(() => {

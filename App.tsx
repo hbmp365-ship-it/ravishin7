@@ -118,6 +118,7 @@ const App: React.FC = () => {
               bannerAlignment={lastUserInput?.alignment}
               bannerTheme={lastUserInput?.theme}
               bannerDesignReferenceImage={lastUserInput?.bannerDesignReferenceImage}
+              bannerAiImagePromptHint={lastUserInput?.bannerAiImagePromptHint}
               onRequestInstaCardWithReferenceText={handleRequestInstaCardWithReferenceText}
             />
           </div>

@@ -83,6 +83,8 @@ export const InputForm: React.FC<InputFormProps> = ({
   const [bannerDesignStyle, setBannerDesignStyle] = useState<BannerDesignStyleId>(DEFAULT_BANNER_DESIGN_STYLE_ID);
   /** false(기본): 입력한 문구 필드만 출력 / true: 비어 있는 필드는 AI가 채움 */
   const [bannerAutoFillEmptyFields, setBannerAutoFillEmptyFields] = useState(false);
+  /** 배너 전 유형 공통: 이미지 생성·본문 기획에 넣을 사용자 프롬프트 */
+  const [bannerAiImagePromptHint, setBannerAiImagePromptHint] = useState('');
   /** 배너 배경(Nano Banana) 참고용 예시 이미지 — 디자인만 참고, 텍스트는 UI에서 합성 */
   const [bannerDesignReferenceFile, setBannerDesignReferenceFile] = useState<File | null>(null);
   const [bannerDesignReferenceObjectUrl, setBannerDesignReferenceObjectUrl] = useState<string | null>(null);
@@ -102,6 +104,7 @@ export const InputForm: React.FC<InputFormProps> = ({
         if (prev) URL.revokeObjectURL(prev);
         return null;
       });
+      setBannerAiImagePromptHint('');
     }
   }, [format]);
 
@@ -318,6 +321,8 @@ export const InputForm: React.FC<InputFormProps> = ({
       bannerDesignStyle: isBannerFormat ? bannerDesignStyle : undefined,
       bannerAutoFillEmptyFields: isBannerFormat ? bannerAutoFillEmptyFields : undefined,
       bannerDesignReferenceImage: isBannerFormat ? bannerDesignReferenceImage : undefined,
+      bannerAiImagePromptHint:
+        isBannerFormat && bannerAiImagePromptHint.trim() ? bannerAiImagePromptHint.trim() : undefined,
       cutCount: isYouTubeFormat ? cutCount : undefined,
       cutTexts: isYouTubeFormat ? cutTexts : undefined,
     };
@@ -1286,6 +1291,23 @@ export const InputForm: React.FC<InputFormProps> = ({
                 </>
               )}
             </p>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <label htmlFor="bannerAiImagePromptHint" className={`${commonLabelClass} mb-1`}>
+              이미지 생성 참고 프롬프트 <span className="text-gray-400 text-xs font-normal">(선택)</span>
+            </label>
+            <p className="text-xs text-gray-500 mb-2 leading-relaxed">
+              콘텐츠 생성 시 본문·기획에 반영되고, 이미지 생성 시에도 함께 적용됩니다. 구도, 색감, 텍스트 정렬, 그래픽 스타일, 글자 크기 비율 등을 적어 주세요.
+            </p>
+            <textarea
+              id="bannerAiImagePromptHint"
+              value={bannerAiImagePromptHint}
+              onChange={(e) => setBannerAiImagePromptHint(e.target.value)}
+              className={`${commonInputClass} min-h-[88px]`}
+              placeholder="예: 전체 왼쪽 정렬, 다크 배경 + 민트 포인트, 헤드라인은 매우 크게, 하단에 플랫 일러스트 장식"
+              rows={4}
+            />
           </div>
         </>
       )}
