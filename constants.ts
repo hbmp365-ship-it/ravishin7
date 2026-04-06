@@ -1,3 +1,5 @@
+import type { BannerDesignStyleId } from './types';
+
 export const CATEGORIES = [
   { name: '한 수 배워요', description: '친근·실용, 스윙·레슨·골프팁' },
   { name: '나이스샷 매너', description: '감성·품격, 룰·매너·에티켓' },
@@ -82,13 +84,6 @@ export const THEME_OPTIONS = [
   { value: '다크모드', label: '다크모드', description: '어두운 배경, 밝은 텍스트' },
 ];
 
-export const IMAGE_GENERATOR_TOOLS = [
-  { value: 'Google Nano Banana', label: 'Google Nano Banana' },
-  { value: 'Chat GPT DALL-E', label: 'Chat GPT DALL-E' },
-  { value: 'Midjourney', label: 'Midjourney' },
-  { value: 'Higgsfield', label: 'Higgsfield' },
-];
-
 export const ALIGNMENT_OPTIONS = [
   { value: 'Center aligned', label: 'Center aligned' },
   { value: 'Left aligned', label: 'Left aligned' },
@@ -105,6 +100,135 @@ export const IMAGE_MODELS = [
 /** 배너/포스터 이미지 생성 API 호출 시 덧붙임 — 텍스트만 있는 단조로운 결과 방지 */
 export const GEMINI_BANNER_IMAGE_ENRICH_SUFFIX =
   'Visual requirement: Deliver a finished banner/poster design with clear visual interest. Prefer illustrated / vector / flat graphic / icon / shape-based visuals over photorealistic stock photography (use photos only if truly necessary). Use decorative shapes, gradients, subtle patterns, and thematic graphics. Do not output plain typography on a flat solid color only. Typography: prioritize readability—strong contrast vs background, clear size hierarchy (headline > body), optional semi-transparent panel or subtle outline behind text if needed. No TeeShot or 티샷 branding or logo.';
+
+/** 참고 이미지가 있을 때: 벡터 우선 등 일반 접미사가 레퍼런스(실사/3D 등)와 충돌하지 않도록 완화 */
+const GEMINI_BANNER_IMAGE_ENRICH_SUFFIX_WITH_REFERENCE =
+  'Visual requirement: Finished banner/poster. **Stay in the reference’s medium** (vector / photo / 3D / mixed) and mood — never a generic unrelated stock look. **Graphics:** reuse the **same family** of motifs as the reference (icons, ribbons, blobs, lines, frames, stickers, gradients, patterns) at a **similar density and placement style**. **Typography layout (critical):** Mirror the reference’s **text alignment** (left-aligned blocks vs centered vs right vs intentional asymmetry). Mirror **type color & effects** (solid fills, outlines/strokes, shadows, glow, gradient-filled letters, reverse/knockout on panels) using colors **drawn from the reference palette**. Mirror **relative type scale** — how much bigger the main headline is vs subhead vs body vs CTA button text; keep the **same hierarchy proportions** even though the words are new. Korean must be legible. No plain solid-fill-only poster unless the reference is ultra-minimal. No TeeShot or 티샷 branding or logo.';
+
+/**
+ * Nano Banana 배경 전용 파이프라인: 이미지에 글자·숫자·로고 없음. CSS 텍스트 레이어로 합성하기 위한 장면 생성.
+ */
+export const NANO_BANNER_BACKGROUND_ONLY_SUFFIX =
+  'Background only, NO TEXT, NO LETTERS, wide shot, high-quality golf scenery, clean composition for typography overlay, 4k.';
+
+const GEMINI_BANNER_BACKGROUND_SCENE_HINT =
+  'CRITICAL: The image must contain ZERO text, letters, numbers, watermarks, or logos anywhere. Golf-themed scenery, atmosphere, and abstract/graphic elements only — leave clear negative space for typography to be added later in UI. No TeeShot or 티샷 branding.';
+
+/** 참고 이미지 + 무텍스트 배경: 레퍼런스 복제가 아닌 스타일만 반영하고 타이포 영역 확보 */
+const GEMINI_BANNER_REFERENCE_STYLE_DNA_FOR_OVERLAY =
+  'REFERENCE (if any): Treat the attached image as **style DNA only** — color harmony, graphic rhythm, illustration vs photo mood, softness/contrast. Do **not** output a near-duplicate or tight crop of the reference frame. Synthesize a **fresh** background plate that matches the **campaign mood** in the scene notes below. Reserve **large, calm negative space** (typically upper-third or center “safe zone”) where Korean marketing headline, subheadline, and CTA will be composited in the app UI. Avoid busy textures, faces, or high-contrast clutter in that safe zone. The prose in “Scene / mood reference” is for atmosphere only — never paint it as visible letters.';
+
+/**
+ * 참고 이미지 + 완성 배너: 레퍼런스를 1순위 아트 디렉션으로 두고, 카피만 프롬프트에서 가져옴.
+ * (UI의 디자인 스타일 프리셋은 레퍼런스와 충돌 시 무시하도록 본문에서 약하게만 사용)
+ */
+const GEMINI_BANNER_REFERENCE_STYLE_DNA_FINISHED =
+  'ATTACHED REFERENCE = PRIMARY ART DIRECTION (non-negotiable): The user chose this image so the output **must look obviously inspired by it**. Match closely: **global colors** (dominant + accent hues, saturation, contrast), **warm/cool balance**, **flat vs photo vs 3D**, **line weight**, **corners**, **texture/grain**, **shadows**, **shape language** (organic/geometric), **margin/padding from edges**, and **overall graphic energy**. The viewer should feel “same brand / same designer toolkit” — **not** a random new style.\n\n' +
+  'REFERENCE — TEXT & LAYOUT CHECKLIST (apply every item): (1) **Alignment:** If the reference uses left-aligned copy blocks, centered hero type, right-aligned stacks, or mixed columns — **replicate that alignment pattern** for your headline, subheadline, body, and CTA. (2) **Type colors & styling:** Match how the reference treats type — e.g. white on dark, colored headlines, outlined letters, heavy shadow, gradient text, or type on colored bars — using **colors from the reference**, not arbitrary new ones. (3) **Size hierarchy:** Copy the **relative scale** between main headline, secondary line, body, and CTA (which is largest, how much step-down between levels). (4) **Graphic vocabulary:** Use the **same kinds** of decorative elements the reference uses (badges, swooshes, icons, photo crops, dividers, blobs) at a **similar visual weight** and **similar zone** of the canvas (e.g. graphics hugging text vs full-bleed background shapes).\n\n' +
+  'CONTENT RULES: **Never** copy visible words, logos, or watermarks from the reference. **All** on-image wording must come **only** from “Text content and visual instructions” below — spelled exactly (Korean and Latin). If any UI preset in this prompt conflicts with the reference, **the reference wins.**';
+
+/** 배너/포스터 → Nano Banana: UI 옵션 및 선두 System Prompt 키워드 */
+export const BANNER_DESIGN_STYLES: ReadonlyArray<{
+  id: BannerDesignStyleId;
+  label: string;
+  descriptionKo: string;
+  systemPrompt: string;
+}> = [
+  {
+    id: 'minimal_clean',
+    label: '미니멀 & 클린',
+    descriptionKo: '여백의 미, 절제된 텍스트, 신뢰감 있는 정보 전달',
+    systemPrompt:
+      'High-end minimalist design, Swiss style, plenty of negative space, sans-serif typography focus, clean vector elements, no clutter, 4k.',
+  },
+  {
+    id: 'business_luxury',
+    label: '비즈니스 럭셔리',
+    descriptionKo: '고해상도 실사 느낌, 프리미엄 골프장 분위기, 무게감 있는 톤',
+    systemPrompt:
+      'Professional lifestyle photography, cinematic lighting, luxury golf resort background, sophisticated atmosphere, muted elegant colors, high resolution, photorealistic.',
+  },
+  {
+    id: 'modern_illustration',
+    label: '모던 일러스트',
+    descriptionKo: '친근한 캐릭터·아이콘 중심, MZ 타겟',
+    systemPrompt:
+      'Modern flat vector illustration, soft gradients, friendly character design, clean lines, vibrant pastel colors, trendy 2D art style, high quality.',
+  },
+  {
+    id: 'dynamic_sporty',
+    label: '다이나믹 스포티',
+    descriptionKo: '강렬한 에너지·속도감, 프로모션·랭킹에 적합',
+    systemPrompt:
+      'Energetic sports graphic design, bold typography, high contrast, dynamic motion lines, gritty textures, vibrant colors, athletic aesthetic.',
+  },
+];
+
+export const DEFAULT_BANNER_DESIGN_STYLE_ID: BannerDesignStyleId = 'minimal_clean';
+
+export function resolveBannerDesignStyle(id?: BannerDesignStyleId): (typeof BANNER_DESIGN_STYLES)[number] {
+  const found = id ? BANNER_DESIGN_STYLES.find((s) => s.id === id) : undefined;
+  return found ?? BANNER_DESIGN_STYLES[0];
+}
+
+/**
+ * Nano Banana(gemini 이미지) 호출용 최종 프롬프트: 스타일 System Prompt + Subject + Layout + 본문 + 공통 보강
+ */
+export function buildBannerImageGenerationPrompt(
+  basePrompt: string,
+  options: {
+    designStyleId?: BannerDesignStyleId;
+    bannerContentType?: string;
+    bannerAspectRatio?: string;
+    /** true면 글자 없는 배경만 생성(CSS 텍스트 합성용). 기본은 false(이미지에 문구 포함 완성물) */
+    backgroundOnlyForTypographyOverlay?: boolean;
+    /** 예시 참고 이미지가 첨부된 경우(멀티모달): 스타일만 참고·타이포 안전 영역 강조 */
+    designReferenceImageAttached?: boolean;
+    /** 폼 하단 사용자 입력: 이미지 생성 시 API 프롬프트 끝에 그대로 반영 */
+    userImagePromptHint?: string;
+  }
+): string {
+  const row = resolveBannerDesignStyle(options.designStyleId);
+  const userHint = options.userImagePromptHint?.trim();
+  const appendUserHint = (body: string) =>
+    userHint
+      ? `${body}\n\n[User-specified image instructions — follow completely; do not contradict]\n${userHint}`
+      : body;
+  const backgroundOnly = options.backgroundOnlyForTypographyOverlay === true;
+  if (backgroundOnly) {
+    const parts = [
+      row.systemPrompt,
+      GEMINI_BANNER_BACKGROUND_SCENE_HINT,
+      options.designReferenceImageAttached ? GEMINI_BANNER_REFERENCE_STYLE_DNA_FOR_OVERLAY : '',
+      `Subject: Banner/Poster background plate${options.bannerContentType ? ` — ${options.bannerContentType}` : ''}.`,
+      options.bannerAspectRatio?.trim() ? `Layout / aspect ratio: ${options.bannerAspectRatio.trim()}.` : '',
+      'Scene / mood reference (never render as visible text in the image):',
+      basePrompt.trim(),
+      NANO_BANNER_BACKGROUND_ONLY_SUFFIX,
+    ];
+    return appendUserHint(parts.filter(Boolean).join('\n\n'));
+  }
+  const partsLegacy = options.designReferenceImageAttached
+    ? [
+        GEMINI_BANNER_REFERENCE_STYLE_DNA_FINISHED,
+        `Secondary UI style hint (only if reference is ambiguous — never override reference): ${row.systemPrompt}`,
+        `Subject: Banner/Poster${options.bannerContentType ? ` — ${options.bannerContentType}` : ''}.`,
+        options.bannerAspectRatio?.trim() ? `Layout / aspect ratio: ${options.bannerAspectRatio.trim()}.` : '',
+        'Text content and visual instructions:',
+        basePrompt.trim(),
+        GEMINI_BANNER_IMAGE_ENRICH_SUFFIX_WITH_REFERENCE,
+        'Final check before rendering: Would a designer say this poster **shares the same alignment, type scale, type color treatment, palette, and graphic motifs** as the reference? If not, adjust. Copy only from the text block above.',
+      ]
+    : [
+        row.systemPrompt,
+        `Subject: Banner/Poster${options.bannerContentType ? ` — ${options.bannerContentType}` : ''}.`,
+        options.bannerAspectRatio?.trim() ? `Layout / aspect ratio: ${options.bannerAspectRatio.trim()}.` : '',
+        'Text content and visual instructions:',
+        basePrompt.trim(),
+        GEMINI_BANNER_IMAGE_ENRICH_SUFFIX,
+      ];
+  return appendUserHint(partsLegacy.filter(Boolean).join('\n\n'));
+}
 
 export const CATEGORY_KEYWORDS: { [key: string]: string[] } = {
   '한 수 배워요': [
@@ -882,6 +1006,7 @@ export const SYSTEM_PROMPT = `
 **배너/포스터 시각·타이포 기본 방향 (공통):**
 - 되도록 **실사(포토리얼) 사진**보다 **일러스트·벡터·플랫 그래픽·아이콘·도형·패턴** 등 그래픽 요소를 우선합니다. (실제 사진이 주제에 필수일 때만 제한적으로 사용)
 - **텍스트 가독성 최우선**: 배경과의 **충분한 명암 대비**, 헤드라인·본문·CTA의 **크기·굵기 위계**, 필요 시 **반투명 패널·외곽선·약한 그림자**로 글자가 배경에 묻히지 않게 합니다. 📐 디자인 컨셉·🎨 AI 이미지 생성 프롬프트에 반드시 반영하세요.
+- **텍스트는 단순 나열 금지 (필수):** 완성 배너에서는 헤드라인·서브·본문·CTA가 **서로 다른 타이포 위계**와 **레이아웃 컴포넌트**로 구분되어야 합니다. 예: 헤드라인은 상단 강조(필요 시 **리본·라벨·뱃지** 느낌), 서브는 한 단계 작은 보조 타이포, **본문(바디카피)은 둥근 모서리 카드·패널·박스 안**에 넣고 **행간 1.5~1.8배(느낌)·문단 간 여백**을 명시, CTA는 **캡슐형 버튼·필(pill) 뱃지**처럼 보이게 묘사. 📐·🎨 모두에서 "글자만 한 줄로 붙여 넣은 느낌"이 되지 않게 구체적으로 쓰세요.
 
 🚨🚨🚨 **최우선 절대 규칙 - 반드시 첫 번째로 확인하세요!** 🚨🚨🚨
 
@@ -935,9 +1060,9 @@ export const SYSTEM_PROMPT = `
 
 **바디카피 (본문 내용) 처리 규칙:**
 - 사용자가 입력하지 않은 경우: 헤드라인과 서브헤드라인에 어울리는 본문 내용을 자동으로 생성하세요.
-  배너/포스터에 적합한 길이와 톤으로 작성하세요.
-- 사용자가 입력한 경우: 입력된 바디카피를 **그대로 정확히 출력**하세요.
-  ❌ 절대 추가, 수정, 변경, 확장하지 마세요.
+  배너/포스터에 적합한 길이와 톤으로 작성하세요. **2문단 이상이면 문단마다 줄바꿈**으로 나누고, **문장·문단 사이 행간·여백**이 읽히도록 📝·📐·🎨에 반영하세요.
+- 사용자가 입력한 경우: **문자 내용(단어·문장·철자·순서)은 입력과 동일**하게 유지하세요. ❌ 내용 추가·삭제·수정·확장 금지.
+  ✅ **가독성만을 위한 줄바꿈·빈 줄(문단 구분)** 은 허용합니다. 한 줄로 길게 이어 붙이지 말고, **적절한 행간·문단 구분**이 드러나게 📝에 표기하고, 📐·🎨에서는 **패널/박스 안 본문**으로 **위계 있는 타이포**로 설명하세요.
 
 **CTA (행동 유도 문구) 처리 규칙:**
 - 사용자가 입력하지 않은 경우: 헤드라인과 서브헤드라인에 어울리는 행동 유도 문구를 자동으로 생성하세요.
@@ -979,12 +1104,14 @@ export const SYSTEM_PROMPT = `
   * 포스터 무드: 클래식·예술적 포스터 느낌, 일러스트·타이포 중심
 - 색상 팔레트: [주요 색상 3-5개, 구체적인 색상명과 사용 위치 명시]
 - 타이포그래피: [폰트 스타일 및 크기 가이드, 헤드라인/서브헤드라인/CTA별 폰트 스타일]
-- 레이아웃: [구성 요소 배치 설명, 시각적 계층 구조, 창의적이고 효과적인 레이아웃 제안]
+- 레이아웃: [구성 요소 배치 설명, 시각적 계층 구조, 창의적이고 효과적인 레이아웃 제안 — 헤드라인/서브/본문(박스 안)/CTA(버튼·뱃지) **역할별 영역**을 문장으로 구분]
 - 정렬: [선택된 정렬 옵션에 맞게 텍스트와 요소 배치 설명]
 - 톤앤매너: [전체적인 느낌과 분위기]
 - **중요**: 사용자가 입력한 옵션만으로는 부족해 보이면, AI가 자동으로 디자인 요소를 보완하여 완성도 높은 배너/포스터 디자인을 만들어주세요. 색상, 레이아웃, 그래픽 요소 등을 창의적으로 추가하세요.
 
 📝 주요 텍스트 요소
+
+(각 항목은 반드시 **불릿 한 줄로 시작**하세요: 하이픈+공백+헤드라인/서브헤드라인/바디카피/CTA 문구 레이블과 콜론 형식. 바디카피가 여러 문단이면 **첫 줄에 바디카피 불릿**을 쓰고 **이어지는 문단은 빈 줄로 구분된 다음 줄들**에 이어 쓰세요. 한 덩어리 장문으로 붙이지 마세요.)
 
 🚨 **헤드라인 출력 (최우선 확인):**
 - 원본 헤드라인: "[사용자가 입력한 정확한 원본 텍스트를 여기에 그대로 복사]"
@@ -992,16 +1119,14 @@ export const SYSTEM_PROMPT = `
 - 처리: [8글자 초과: 위 원본을 정확히 그대로 사용 | 8글자 이하: 확장하여 작성]
 
 - 서브헤드라인: [입력 없음: 자동 생성 / 입력 있음 & 8글자 이하: 확장 / 입력 있음 & 8글자 초과: 입력된 텍스트 그대로 정확히 출력]
-- 바디카피: [입력 없음: 자동 생성 / 입력 있음: 입력된 텍스트 그대로 정확히 출력]
+- 바디카피: [입력 없음: 자동 생성(문단·행간 고려) / 입력 있음: **내용 동일** + 줄바꿈·문단 구분으로 가독성 반영]
 - CTA 문구: [입력 없음: 자동 생성 / 입력 있음 & 8글자 이하: 확장 / 입력 있음 & 8글자 초과: 입력된 텍스트 그대로 정확히 출력]
 
 **⚠️ 다시 한번 확인: 헤드라인이 8글자를 초과한다면, 위에 표시한 원본을 절대 수정하지 말고 그대로 사용하세요!**
 
-🎨 AI 이미지 생성 프롬프트 ([선택된 모델명])
-[선택된 AI 이미지 생성 모델에 맞는 프롬프트 작성]
-- **반드시 "🎨 AI 이미지 생성 프롬프트 (모델명)" 형식으로 시작하세요**
-  예: "🎨 AI 이미지 생성 프롬프트 (Google Nano Banana)", "🎨 AI 이미지 생성 프롬프트 (Midjourney)"
-- **선택된 모델에 따라 프롬프트 형식을 최적화하여 작성하세요**
+🎨 AI 이미지 생성 프롬프트
+[배너·포스터용 이미지 한 장을 묘사하는 통합 한글 프롬프트 작성]
+- **반드시 "🎨 AI 이미지 생성 프롬프트"로 한 줄 제목을 시작하세요** (모델명·툴명 접미사 없음)
 - **한글로 작성** (영어 사용 금지)
 - **사람이 포함된 이미지인 경우 반드시 동양인(아시아인)을 기본으로 명시하세요**
 - **절대 금지: TEESHOT, TeeShot, 티샷 등의 로고, 브랜드명을 이미지에 포함하지 마세요.**
@@ -1010,51 +1135,25 @@ export const SYSTEM_PROMPT = `
 - 선택된 스타일(이미지 기반/그래픽 기반/포스터 무드)을 반영
 - 선택된 정렬 옵션을 반영
 - 색상, 스타일, 레이아웃, 텍스트 배치 등 구체적으로 설명
-- 사용자가 입력한 헤드라인, 서브헤드라인, 바디카피, CTA를 포함하여 완성도 높은 디자인 설명
+- 사용자가 입력한 헤드라인, 서브헤드라인, 바디카피, CTA를 포함하여 완성도 높은 디자인 설명 (**각 텍스트 역할별로 시각적 구분**: 헤드라인 영역 / 서브 영역 / **본문은 카드·패널 박스 안** / CTA는 **버튼·캡슐 뱃지** 형태 등을 문장으로 구체화)
 - **🚨 시각 요소 필수:** 단순 텍스트 나열이 아니라 **완성된 배너 이미지 한 장**을 묘사하세요. **일러스트·벡터·플랫 그래픽·아이콘·도형·그래디언트·패턴** 등을 우선하고, 실사 사진은 필요 시에만. 글자만 올린 단색 배경은 피하세요.
 - **🚨 한글 텍스트 처리·가독성 (중요):**
   - 한글 텍스트가 이미지에 정확히 표시되도록 하려면, 출력하고자 하는 한글 문구를 따옴표로 감싸고 명시하세요.
   - 예시: "Text in the image should be exactly '한국어 문구'" 또는 "The text '티샷 실시간 예약 서비스 오픈!!' should appear exactly as written"
   - **가독성**: 배경과 대비되는 색·굵기·크기 위계, 긴 문구는 줄바꿈·여백, 필요 시 텍스트 뒤 반투명 박스를 프롬프트에 명시하세요.
+  - **본문(바디카피)** 는 이미지 안에서 **여러 줄·넉넉한 행간(1.5~1.8배 느낌)·문단 간격**이 보이도록 묘사하고, **패널·카드형 박스** 안에 넣는 방식을 우선하세요.
   - 핵심 키워드 위주로 배치하고, 너무 많은 텍스트를 한 번에 넣으려 하지 마세요. 세부 내용은 나중에 디자인 툴(Figma, Canva 등)에서 직접 수정하는 것이 효율적입니다.
 - 내용이 부족하면 AI가 자동으로 보완하여 완성도 높은 프롬프트 생성
 
-**각 모델별 프롬프트 작성 가이드 (최적화 필수):**
-
-**Google Nano Banana:**
-- **반드시 "🎨 AI 이미지 생성 프롬프트 (Google Nano Banana)"로 시작**
-- Google Nano Banana에 최적화된 한글 프롬프트 작성
-- 자연스러운 한글 문장으로 상세하고 구체적으로 설명
-- 시각적 요소, 색상, 레이아웃을 명확하게 기술
+**프롬프트 작성 가이드:**
+- 자연스러운 한글 문장으로 시각 요소, 색상, 레이아웃을 구체적으로 기술
 - 테마(라이트모드/다크모드)에 따른 배경과 텍스트 색상 명시
-- 예시: "[선택된 테마] 테마의 [선택된 스타일] 스타일 배너 디자인, 비율 [비율], 정렬 [정렬 옵션], 배경 [배경색], 텍스트 [텍스트색], 주요 색상 [색상], 폰트 스타일 [폰트], 헤드라인 '[헤드라인]', 서브헤드라인 '[서브헤드라인]', 바디카피 '[바디카피]', CTA '[CTA]' 포함, [추가 디자인 요소 설명]"
-
-**Chat GPT DALL-E:**
-- **반드시 "🎨 AI 이미지 생성 프롬프트 (Chat GPT DALL-E)"로 시작**
-- DALL-E 3에 최적화된 한글 프롬프트 작성
-- 자연스러운 한글 문장으로 상세하게 설명
-- 구체적인 시각적 묘사와 디자인 요소를 포함
-- 테마(라이트모드/다크모드)에 따른 배경과 텍스트 색상 명시
-- 예시: "[선택된 테마] 테마의 [선택된 스타일] 스타일 배너 디자인, 비율 [비율], 정렬 [정렬 옵션], 배경 [배경색], 텍스트 [텍스트색], 주요 색상 [색상], 폰트 스타일 [폰트], 헤드라인 '[헤드라인]', 서브헤드라인 '[서브헤드라인]', 바디카피 '[바디카피]', CTA '[CTA]' 포함, [추가 디자인 요소 설명]"
-
-**Midjourney:**
-- **반드시 "🎨 AI 이미지 생성 프롬프트 (Midjourney)"로 시작**
-- Midjourney에 최적화된 한글 프롬프트 작성
-- Midjourney 스타일의 구체적이고 시각적인 설명
-- --ar, --style 등의 파라미터는 한글로 설명하되, 필요시 영어 파라미터 포함 가능
-- 테마(라이트모드/다크모드)에 따른 배경과 텍스트 색상 명시
-- 예시: "[선택된 테마] 테마의 [선택된 스타일] 스타일 배너 디자인, 비율 [비율], 정렬 [정렬 옵션], 배경 [배경색], 텍스트 [텍스트색], 주요 색상 [색상], 폰트 스타일 [폰트], 헤드라인 '[헤드라인]', 서브헤드라인 '[서브헤드라인]', 바디카피 '[바디카피]', CTA '[CTA]' 포함, [추가 디자인 요소 설명]"
-
-**Higgsfield:**
-- **반드시 "🎨 AI 이미지 생성 프롬프트 (Higgsfield)"로 시작**
-- Higgsfield에 최적화된 한글 프롬프트 작성
-- 구체적인 시각적 요소와 디자인 세부사항을 상세히 설명
-- 테마(라이트모드/다크모드)에 따른 배경과 텍스트 색상 명시
-- 예시: "[선택된 테마] 테마의 [선택된 스타일] 스타일 배너 디자인, 비율 [비율], 정렬 [정렬 옵션], 배경 [배경색], 텍스트 [텍스트색], 주요 색상 [색상], 폰트 스타일 [폰트], 헤드라인 '[헤드라인]', 서브헤드라인 '[서브헤드라인]', 바디카피 '[바디카피]', CTA '[CTA]' 포함, [추가 디자인 요소 설명]"
+- 예시: "[테마] 테마의 [스타일] 스타일 배너 디자인, 비율 [비율], 정렬 [정렬 옵션], 배경 [배경색], 텍스트 [텍스트색], 주요 색상 [색상], 헤드라인 '[헤드라인]', 서브헤드라인 '[서브헤드라인]', 바디카피 '[바디카피]', CTA '[CTA]' 포함, [추가 디자인 요소 설명]"
 
 💡 디자인 가이드라인
 [디자인 시 주의사항 및 권장사항]
 - 텍스트 가독성 최우선(명암 대비, 위계, 패널·외곽선 활용)
+- **타이포 위계·컴포넌트**: 헤드라인·서브·본문·CTA가 디자인상 구분되게(박스·뱃지·버튼형 등). 본문은 행간·문단 여백을 충분히.
 - 시각은 일러스트·그래픽 위주, 실사 사진은 최소화
 - 브랜드 컬러 활용 (TeeShot Green #004B49)
 - 시각적 계층 구조
@@ -1111,8 +1210,8 @@ export const SYSTEM_PROMPT = `
 - 시각적 요소: [간단한 그래프/차트]
 - 배치: [하단]
 
-🎨 AI 이미지 생성 프롬프트 ([선택된 모델명])
-- **반드시 "🎨 AI 이미지 생성 프롬프트 (모델명)" 형식으로 시작하세요**
+🎨 AI 이미지 생성 프롬프트
+- **반드시 "🎨 AI 이미지 생성 프롬프트"로 한 줄 제목을 시작하세요** (모델명·툴명 접미사 없음)
 - **🚨 중요: 이 프롬프트는 반드시 하나의 통합된 텍스트로 작성하세요. 여러 줄로 나누거나 부분부분 나누지 마세요.**
 - **🚨 중요: 위 섹션에서 작성한 실제 텍스트·숫자·통계를 모두 반영하되, 반드시 완성된 인포그래픽 이미지 한 장을 묘사하세요.** 차트·막대·도넛 그래프·아이콘·**일러스트·벡터형 도형**·색상 블록·구분선 등 **그래픽 요소를 우선**하고, 실사 사진은 필요할 때만. 텍스트만 나열한 설명은 금지. **한글·숫자는 크기·대비·여백으로 가독성 확보**를 프롬프트에 명시하세요.
 - **🚨 중요: 위 섹션에서 작성한 실제 텍스트 내용(제목, 문구, 숫자)을 모두 포함하여 하나의 완성된 프롬프트로 작성하세요.**

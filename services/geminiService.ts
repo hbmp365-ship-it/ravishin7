@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 import type { UserInput, GeneratedContent } from '../types';
-import { SYSTEM_PROMPT, GEMINI_NATIVE_IMAGE_MODEL_ID } from '../constants';
+import { SYSTEM_PROMPT, GEMINI_NATIVE_IMAGE_MODEL_ID, resolveBannerDesignStyle } from '../constants';
 
 /**
  * URL에서 텍스트 내용 가져오기
@@ -98,11 +98,24 @@ const fetchUrlContent = async (url: string): Promise<string> => {
 };
 
 const formatUserInput = async (input: UserInput): Promise<string> => {
+  const bannerImageHint = input.bannerAiImagePromptHint?.trim() || '';
+
   let userPrompt = `
 아래 항목을 채워서 그대로 입력하세요.
 
 형식: ${input.format}
 `;
+
+  if (input.format === 'ETC-BANNER' && bannerImageHint) {
+    userPrompt += `\n[사용자 지정 · 이미지 생성 참고 지시]\n${bannerImageHint}\n`;
+    userPrompt += `위 지시는 결과 본문의 📐·🎨(해당 시)·시각 기획과 **이미지 생성**에 **최우선**으로 반영하세요. 시스템 기본 톤·예시와 충돌하면 **사용자 지시**가 우선입니다.\n`;
+  }
+
+  if (input.format === 'ETC-BANNER' && input.bannerDesignStyle) {
+    const styleRow = resolveBannerDesignStyle(input.bannerDesignStyle);
+    userPrompt += `\n[배너 이미지: Nano Banana 디자인 스타일] ${styleRow.label} — ${styleRow.descriptionKo}\n`;
+    userPrompt += `(앱에서 이미지 생성 시 위 스타일의 영문 시스템 키워드가 프롬프트 맨 앞에 붙습니다. 텍스트·🎨 기획은 톤에 맞게 조화시키되 헤드라인 원본 등 절대 규칙은 우선합니다.)\n`;
+  }
 
   // 골프 관련 컨텐츠 토글 처리
   if (input.isGolfRelated === false) {
@@ -116,6 +129,10 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
   // 기타 이벤트 배너: 배너에 넣을 **문구 기획만** (이미지 프롬프트·시각 스펙 없음)
   if (input.format === 'ETC-BANNER' && input.bannerContentType === '기타 이벤트 배너') {
     const headline = input.headline || '';
+    const autoFill = input.bannerAutoFillEmptyFields === true;
+    const hasSub = Boolean(input.subheadline?.trim());
+    const hasBody = Boolean(input.bodyCopy?.trim());
+    const hasCta = Boolean(input.cta?.trim());
     userPrompt += `카테고리: ${input.category}\n`;
     userPrompt += `컨텐츠 유형: 기타 이벤트 배너 (텍스트 기획 전용)\n`;
     if (input.aspectRatio) {
@@ -123,39 +140,66 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
     }
     userPrompt += `\n🚨🚨🚨 역할: 이벤트 배너에 들어갈 **카피(문구)만** 정리합니다. 🚨🚨🚨\n`;
     userPrompt += `- **금지**: 이미지 생성 프롬프트, 영어 프롬프트, 나노바나나/Midjourney/DALL·E 등 도구용 설명, "제목:"·"기본 비율:"·📐·🎨·💡 형식의 일반 배너 출력, 색상 HEX·폰트명·픽셀·일러스트 지시.\n`;
-    userPrompt += `- **허용**: 한국어로 배너에 실을 문구를 섹션별로 짧게 정리. (선택) 정보 위계를 **문장으로만** 2~3줄 안내 가능.\n\n`;
+    userPrompt += `- **허용**: 한국어로 배너에 실을 문구를 섹션별로 짧게 정리.\n`;
+    userPrompt += `- **가독성**: "## 본문"은 한 줄로 붙이지 말고 **문단마다 줄바꿈**(필요 시 빈 줄)로 나누어 읽기 쉽게 출력하세요. (사용자 입력 본문은 **문자 내용 변경 없이** 줄바꿈만 허용.)\n\n`;
     userPrompt += `🚨 사용자 입력 원본 보존 (최우선)\n`;
     userPrompt += `- 제목·부제목·본문·CTA 중 **입력된 필드**는 최종 출력에서 **입력과 완전히 동일** (확장·축약·맞춤법·띄어쓰기·구두점 변경 금지).\n`;
-    userPrompt += `- **비어 있는 필드만** 이벤트에 맞게 AI가 작성.\n\n`;
+    if (autoFill) {
+      userPrompt += `- **비어 있는 필드**는 이벤트에 맞게 AI가 작성합니다.\n\n`;
+    } else {
+      userPrompt += `- **비어 있는 필드에 해당하는 ## 섹션은 출력하지 마세요.** (제목·부제·본문·CTA 중 미입력 항목은 마크다운 섹션 자체를 생략. "없음", "(생략)", 빈 섹션 제목만 두기 금지.)\n\n`;
+    }
     userPrompt += `제목(필수): "${headline}"\n`;
     userPrompt += `→ "## 헤드라인" 아래에 위 문자열을 **그대로** 넣으세요.\n\n`;
-    if (input.subheadline && input.subheadline.trim()) {
+    if (hasSub) {
       userPrompt += `부제목: "${input.subheadline}" → "## 서브카피" 아래에 **그대로**.\n\n`;
-    } else {
+    } else if (autoFill) {
       userPrompt += `부제목: (미입력 — "## 서브카피"에 AI 작성)\n\n`;
+    } else {
+      userPrompt += `부제목: 미입력 → **"## 서브카피" 섹션 전체 출력 금지**\n\n`;
     }
-    if (input.bodyCopy && input.bodyCopy.trim()) {
+    if (hasBody) {
       userPrompt += `본문: """${input.bodyCopy}""" → "## 본문" 아래에 **그대로**.\n\n`;
-    } else {
+    } else if (autoFill) {
       userPrompt += `본문: (미입력 — "## 본문"에 AI 작성)\n\n`;
-    }
-    if (input.cta && input.cta.trim()) {
-      userPrompt += `CTA: "${input.cta}" → "## CTA" 아래에 **그대로**.\n\n`;
     } else {
-      userPrompt += `CTA: (미입력 — "## CTA"에 AI 작성)\n\n`;
+      userPrompt += `본문: 미입력 → **"## 본문" 섹션 전체 출력 금지**\n\n`;
     }
-    userPrompt += `필수 출력 형식 (이 순서·제목 그대로):\n\n`;
+    if (hasCta) {
+      userPrompt += `CTA: "${input.cta}" → "## CTA" 아래에 **그대로**.\n\n`;
+    } else if (autoFill) {
+      userPrompt += `CTA: (미입력 — "## CTA"에 AI 작성)\n\n`;
+    } else {
+      userPrompt += `CTA: 미입력 → **"## CTA" 섹션 전체 출력 금지**\n\n`;
+    }
+    userPrompt += `필수 출력 형식 (아래 **실제로 출력할 섹션만** 이 순서로. 생략한 섹션은 쓰지 마세요):\n\n`;
     userPrompt += `## 헤드라인\n`;
     userPrompt += `(위 제목 문자열 그대로, 한 줄)\n\n`;
-    userPrompt += `## 서브카피\n`;
-    userPrompt += `(부제·보조 문구, 1~3줄)\n\n`;
-    userPrompt += `## 본문\n`;
-    userPrompt += `(바디 카피, 필요 시 여러 줄)\n\n`;
-    userPrompt += `## CTA\n`;
-    userPrompt += `(행동 유도 한 줄)\n\n`;
-    userPrompt += `## 텍스트 배치 안내 (선택)\n`;
-    userPrompt += `위 문구를 배너에서 어떻게 나눠 배치할지 **한국어 문장**으로만 2~4줄 (예: 상단 헤드라인, 중앙 본문). 색·이미지·폰트 지시 금지.\n\n`;
+    if (hasSub || autoFill) {
+      userPrompt += `## 서브카피\n`;
+      userPrompt += hasSub ? `(위 부제목 문자열 그대로)\n\n` : `(부제·보조 문구, 1~3줄, AI 작성)\n\n`;
+    }
+    if (hasBody || autoFill) {
+      userPrompt += `## 본문\n`;
+      userPrompt += hasBody ? `(위 본문 그대로)\n\n` : `(바디 카피, 필요 시 여러 줄, AI 작성)\n\n`;
+    }
+    if (hasCta || autoFill) {
+      userPrompt += `## CTA\n`;
+      userPrompt += hasCta ? `(위 CTA 그대로)\n\n` : `(행동 유도 한 줄, AI 작성)\n\n`;
+    }
+    if (autoFill || hasSub || hasBody || hasCta) {
+      userPrompt += `## 텍스트 배치 안내 (선택)\n`;
+      userPrompt += `위 문구를 배너에서 어떻게 나눠 배치할지 **한국어 문장**으로만 2~4줄 (예: 상단 헤드라인, 중앙 본문). 색·이미지·폰트 지시 금지.\n\n`;
+    } else {
+      userPrompt += `(헤드라인만 제공된 경우 "## 텍스트 배치 안내" 섹션은 출력하지 마세요.)\n\n`;
+    }
     userPrompt += `마지막 줄: 후속 제안: [비슷한 이벤트 주제 1], [2], [3]\n`;
+
+    if (bannerImageHint) {
+      userPrompt += `\n🚨 사용자가 **이미지 생성 참고 지시**를 입력했습니다. 후속 제안 줄 **바로 위**에 반드시 다음 블록을 추가하세요.\n`;
+      userPrompt += `🎨 이미지 생성용 참고 프롬프트 (사용자 지시 반영)\n`;
+      userPrompt += `[사용자 지정 · 이미지 생성 참고 지시]의 내용을 **빠짐없이** 반영한 **영문** 이미지 생성 프롬프트를 5~12문장으로 작성하세요. 왼쪽/가운데 정렬, 색, 그래픽, 글자 크기 비, 구도 등 사용자가 적은 요구를 구체적인 시각 언어로 풀어쓰세요.\n\n`;
+    }
 
     if (input.referenceUrl) {
       const urlContent = await fetchUrlContent(input.referenceUrl);
@@ -170,6 +214,7 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
 
   if (input.format === 'ETC-BANNER' && input.bannerContentType === '일반') {
       // 배너/포스터 — 일반 유형
+      const bannerAutoFill = input.bannerAutoFillEmptyFields === true;
       const headline = input.headline || '';
       const headlineLength = headline.length;
       userPrompt += `헤드라인: "${headline}"\n`;
@@ -199,16 +244,20 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
         } else {
           userPrompt += `서브헤드라인 글자 수: ${subheadlineLength}자 (8글자 이하 - 확장 가능)\n`;
         }
-      } else {
+      } else if (bannerAutoFill) {
         userPrompt += `서브헤드라인: (입력 없음 - 자동 생성)\n`;
+      } else {
+        userPrompt += `서브헤드라인: 사용자 미입력 → **출력·생성·추측 금지**. 📝·🎨·📐 어디에도 서브헤드라인 문구를 넣지 마세요.\n`;
       }
 
       if (input.bodyCopy && input.bodyCopy.trim()) {
         userPrompt += `바디카피: ${input.bodyCopy}\n`;
         userPrompt += `바디카피 글자 수: ${input.bodyCopy.length}자\n`;
-        userPrompt += `✅ 입력된 바디카피를 그대로 사용하세요.\n`;
-      } else {
+        userPrompt += `✅ 입력된 바디카피 **문구 내용은 변경하지 말고**, 📝에서는 **문단·행간이 드러나게 줄바꿈**만 하세요. 📐·🎨에서는 **카드·패널 박스 안 본문**, **넉넉한 행간**으로 묘사하세요.\n`;
+      } else if (bannerAutoFill) {
         userPrompt += `바디카피: (입력 없음 - 자동 생성)\n`;
+      } else {
+        userPrompt += `바디카피: 사용자 미입력 → **출력·생성·추측 금지**. 📝·🎨·📐 어디에도 바디카피 문구를 넣지 마세요.\n`;
       }
 
       if (input.cta && input.cta.trim()) {
@@ -220,8 +269,20 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
         } else {
           userPrompt += `CTA 글자 수: ${ctaLength}자 (8글자 이하 - 확장 가능)\n`;
         }
-      } else {
+      } else if (bannerAutoFill) {
         userPrompt += `CTA: (입력 없음 - 자동 생성)\n`;
+      } else {
+        userPrompt += `CTA: 사용자 미입력 → **출력·생성·추측 금지**. 📝·🎨·📐 어디에도 CTA 문구를 넣지 마세요.\n`;
+      }
+
+      if (!bannerAutoFill) {
+        userPrompt +=
+          `\n🚨🚨🚨 이번 요청 전용 — 위 사용자 지시가 시스템(공통) 지침보다 우선합니다 🚨🚨🚨\n` +
+          `사용자가 「비어 있는 문구 항목을 AI가 자동으로 채우기」를 **켜지 않았습니다**.\n` +
+          `- 시스템 프롬프트의 "입력하지 않은 경우 자동 생성"(서브헤드라인·바디카피·CTA)은 **이번 응답에서는 적용하지 마세요.**\n` +
+          `- 「📝 주요 텍스트 요소」: 미입력 항목에 해당하는 **줄·불릿 전체를 생략**하세요. placeholder, "없음", "(생략)", 빈 따옴표만 두기 금지.\n` +
+          `- 「🎨 AI 이미지 생성 프롬프트」: 미입력 문구를 **언급·묘사·따옴표로 포함하지 마세요.** (예: 서브 미입력 시 서브헤드라인 텍스트를 프롬프트에 넣지 않음)\n` +
+          `- 「📐 디자인 컨셉」: 존재하지 않는 텍스트 슬롯을 만든 것처럼 서술하지 마세요. 다만 그래픽·색·레이아웃 보완은 허용됩니다.\n`;
       }
   } else if (input.format !== 'ETC-BANNER') {
     // 다른 포맷일 때
@@ -278,10 +339,16 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
     }
   }
   if (input.format === 'ETC-BANNER') {
-    const textOnlyBannerNotice =
-      '\n🚨 이 컨텐츠 유형은 **텍스트 전용**입니다.\n' +
-      '- 출력 금지: 일반 배너용 "제목:", 기본 비율·테마·스타일 설명, 📐 디자인 컨셉, 🎨 AI 이미지 생성 프롬프트, 💡 디자인 가이드라인, 후속 제안.\n' +
-      '- 아래에 명시한 섹션 제목을 그대로 사용하고 한국어로만 작성하세요.\n\n';
+    const textOnlyBannerNotice = bannerImageHint
+      ? '\n🚨 본 유형은 기본적으로 아래 **마크다운 섹션(## …)** 중심의 텍스트 결과입니다.\n' +
+        '- **예외 (필수):** 사용자가 상단 [사용자 지정 · 이미지 생성 참고 지시]를 입력했으므로, **후속 제안 줄 바로 위**에 반드시 다음을 추가하세요.\n' +
+        '  🎨 이미지 생성용 참고 프롬프트 (사용자 지시 반영)\n' +
+        '  (한 줄 띄우고) 해당 지시를 **충실히 반영**한 **영문** 이미지 생성 프롬프트 5~12문장. 정렬·색·그래픽·타이포 크기·구도를 구체적으로.\n' +
+        '- 그 밖에 일반 배너용 "제목:", 📐 디자인 컨셉, 💡 디자인 가이드라인 등은 출력하지 마세요.\n' +
+        '- 아래에 명시한 ## 섹션 본문은 한국어로 작성하세요.\n\n'
+      : '\n🚨 이 컨텐츠 유형은 **텍스트 전용**입니다.\n' +
+        '- 출력 금지: 일반 배너용 "제목:", 기본 비율·테마·스타일 설명, 📐 디자인 컨셉, 🎨 AI 이미지 생성 프롬프트, 💡 디자인 가이드라인, 후속 제안.\n' +
+        '- 아래에 명시한 섹션 제목을 그대로 사용하고 한국어로만 작성하세요.\n\n';
 
     if (input.bannerContentType === '랭킹오브더월드') {
       userPrompt += `카테고리: ${input.category}\n`;
@@ -301,6 +368,11 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
       userPrompt += `## 인스타그램 포스팅 글\n`;
       userPrompt += `위 랭킹을 소개하는 캡션(2~5문단, 이모지 적절히). 마지막에 해시태그 5~8개(골프 관련).\n`;
       userPrompt += `검증되지 않은 사실은 단정하지 말고, 일반적으로 알려진 정보나 상식 수준에서 작성하세요.\n`;
+      if (input.bannerAutoFillEmptyFields === true) {
+        userPrompt += `\n사용자가 **자동 채우기**를 켰습니다. 주제에 맞게 Top 10 설명·캡션을 풍부하게 작성해도 됩니다(검증 불가 사실은 단정 금지).\n`;
+      } else {
+        userPrompt += `\n🚨 사용자 설정: **자동 채우기 끔**. 입력한 주제에 맞춰 **간결히** 작성하고, **가공 순위·검증 불가 수치·단정적 팩트**는 만들지 마세요.\n`;
+      }
       userPrompt += `\n본문 마지막 줄에 반드시 추가: 후속 제안: [비슷한 랭킹 주제 1], [주제 2], [주제 3] (쉼표로 구분, 각 20자 내외)\n`;
       return userPrompt;
     }
@@ -323,6 +395,11 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
       userPrompt += `예약, 시즌, 준비물 등 실용 팁 3~6가지.\n\n`;
       userPrompt += `## 인스타그램 포스팅 글\n`;
       userPrompt += `이 골프장을 소개하는 캡션과 해시태그 5~8개.\n`;
+      if (input.bannerAutoFillEmptyFields === true) {
+        userPrompt += `\n사용자가 **자동 채우기**를 켰습니다. 알려진 범위에서 개요·코스·팁·캡션을 **풍부히** 작성해도 됩니다.\n`;
+      } else {
+        userPrompt += `\n🚨 사용자 설정: **자동 채우기 끔**. **간결히** 작성하고, 확인되지 않은 시설·가격·코스 세부는 단정하거나 지어내지 마세요.\n`;
+      }
       userPrompt += `\n본문 마지막 줄에 반드시 추가: 후속 제안: [다른 국내 골프장 또는 지역 1], [2], [3] (쉼표로 구분)\n`;
       return userPrompt;
     }
@@ -344,6 +421,11 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
       userPrompt += `입문자: 기초 규칙·스윙·코스 기본 용어 위주. 중급자: 샷 형태, 전략, 스코어·필드 용어. 고급자: 룰 세부, 샷 셰이핑, 장비·스펙, 투어·기술 용어 등.\n\n`;
       userPrompt += `## 인스타그램 포스팅 글\n`;
       userPrompt += `오늘의 용어 공부를 권하는 톤의 캡션과 해시태그 5~8개.\n`;
+      if (input.bannerAutoFillEmptyFields === true) {
+        userPrompt += `\n사용자가 **자동 채우기**를 켰습니다. 용어 설명·예시·캡션을 난이도에 맞게 **풍부히** 작성해도 됩니다.\n`;
+      } else {
+        userPrompt += `\n🚨 사용자 설정: **자동 채우기 끔**. 용어 10선과 캡션은 **핵심만 간결히**, 불필요한 장문·과장은 피하세요.\n`;
+      }
       userPrompt += `\n본문 마지막 줄에 반드시 추가: 후속 제안: [용어/주제 1], [2], [3] (쉼표로 구분, 같은 난이도 또는 인접 난이도)\n`;
       return userPrompt;
     }
@@ -364,13 +446,26 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
       userPrompt += `- 인포그래픽은 차트, 그래프, 아이콘, 숫자, 텍스트 등을 포함한 정보 전달형 디자인이어야 합니다.\n`;
       userPrompt += `- 키워드만 입력되어도 관련된 구체적인 내용(통계, 방법, 팁, 데이터 등)을 자동으로 기획하여 인포그래픽에 포함하세요.\n`;
       userPrompt += `- 시각은 되도록 일러스트·아이콘·차트 등 그래픽 중심으로 하고 실사 사진은 최소화하세요. 한글·숫자 텍스트는 가독성(대비, 크기 위계, 여백)을 최우선으로 📊·📐·🎨에 반영하세요.\n`;
+      if (input.bannerAutoFillEmptyFields === true) {
+        userPrompt += `\n사용자가 **자동 채우기**를 켰습니다. 키워드와의 관련성을 유지하면서 섹션·팁·수치 표현을 **풍부히** 구성해도 됩니다(단정 불가한 수치는 완곡히).\n`;
+      } else {
+        userPrompt += `\n🚨 사용자 설정: **자동 채우기 끔**. 키워드 중심은 유지하되 **가공 통계·검증 불가 숫자**는 넣지 마세요. 일반적 설명·비수치 팁·아이콘형 정보 위주로 구성하세요.\n`;
+      }
+      if (bannerImageHint) {
+        userPrompt += `\n🚨 [사용자 지정 · 이미지 생성 참고 지시]가 있습니다. 📊·📐·🎨(영문)·💡에 **반드시** 녹여 넣으세요. 🎨 영문 블록에 사용자의 정렬·색·그래픽·타이포 요구가 드러나야 합니다.\n`;
+      }
       return userPrompt;
     }
     
     // 일반 배너/포스터 포맷인 경우
     userPrompt +=
       `\n[배너/포스터 시각 방향] 📐 디자인 컨셉·🎨 AI 이미지 생성 프롬프트 작성 시: 실사(현실 사진)보다 **일러스트·벡터·플랫 그래픽·아이콘·도형**을 우선하세요. ` +
-      `텍스트는 **가독성 최우선**(배경과 충분한 명암 대비, 헤드라인·본문 크기 위계, 필요 시 글자 뒤 반투명 패널·외곽선).\n\n`;
+      `텍스트는 **가독성 최우선**(배경과 충분한 명암 대비, 헤드라인·본문 크기 위계, 필요 시 글자 뒤 반투명 패널·외곽선). ` +
+      `**단순 텍스트만 나열하지 말고** 헤드라인·서브·본문·CTA의 **위계**를 디자인으로 구분하세요: 본문(바디카피)은 **둥근 카드·패널 박스** 안에 두고 **행간 1.5~1.8배 느낌·문단 간 여백**을 📐·🎨에 명시, CTA는 **캡슐 버튼·뱃지** 형태, 헤드라인은 필요 시 **라벨·리본** 느낌의 강조 등 **완성된 배너 UI**처럼 서술하세요.\n\n`;
+    if (bannerImageHint) {
+      userPrompt +=
+        `\n🚨 [사용자 지정 · 이미지 생성 참고 지시]가 있습니다. 📐 디자인 컨셉(한국어)과 🎨 AI 이미지 생성 프롬프트(영문) **모두**에 사용자 지시를 **충실히** 반영하세요. 🎨에는 정렬·색·그래픽·글자 크기·구도 등이 영어로 구체적으로 드러나야 합니다.\n`;
+    }
     if (input.aspectRatio) {
       userPrompt += `기본 비율: ${input.aspectRatio}\n`;
     }
@@ -387,10 +482,6 @@ const formatUserInput = async (input: UserInput): Promise<string> => {
     }
     if (input.alignment) {
       userPrompt += `정렬 옵션: ${input.alignment}\n`;
-    }
-    if (input.imageGeneratorTool) {
-      userPrompt += `이미지 생성 프롬프트 모델: ${input.imageGeneratorTool}\n`;
-      userPrompt += `⚠️ 중요: 선택된 모델(${input.imageGeneratorTool})에 최적화된 프롬프트를 작성하세요.\n`;
     }
   }
   if (input.tone && input.format !== 'YOUTUBE-SHORTFORM') {
@@ -572,25 +663,62 @@ export const generateGolfContent = async (userInput: UserInput): Promise<Generat
   throw new Error('모든 모델에서 요청이 실패했습니다.');
 };
 
+/** Nano Banana 등 멀티모달 이미지 생성 시 참조 이미지(최대 3장 권장) */
+export type GenerateImageOptions = {
+  referenceImages?: Array<{ mimeType: string; data: string }>;
+  /** 배경만 생성 후 앱에서 한글 타이포를 UI로 합성할 때: 레퍼런스 복제 완화·안전 영역 강조 */
+  typographySafeBackground?: boolean;
+};
+
 /**
  * 이미지 생성은 항상 Gemini 네이티브 이미지 모델 1종만 사용합니다.
  * 두 번째 인자는 하위 호환용이며 무시됩니다.
  */
-export const generateImage = async (prompt: string, _modelIgnored?: string): Promise<string> => {
+export const generateImage = async (
+  prompt: string,
+  _modelIgnored?: string,
+  options?: GenerateImageOptions
+): Promise<string> => {
   if (!process.env.API_KEY) {
     throw new Error("API_KEY is not set in environment variables.");
   }
 
   const modelId = GEMINI_NATIVE_IMAGE_MODEL_ID;
-  console.log('[generateImage] model:', modelId);
+  console.log('[generateImage] model:', modelId, 'referenceCount:', options?.referenceImages?.length ?? 0);
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+  if (options?.referenceImages?.length) {
+    const refBackgroundPlate =
+      'Reference image(s) below: use ONLY as design inspiration — composition, color palette, graphic style, spacing rhythm, and overall mood. ' +
+      'Do NOT copy or recreate any text, letters, numbers, logos, trademarks, or watermarks from the reference(s). ' +
+      'The generated image must contain ZERO visible text or lettering (background plate for separate typography). ' +
+      'The user will add Korean headline, subheadline, body, and CTA in the app as separate text layers. Reinterpret the reference into a **new** composition (not a clone). Keep **large calm negative space** for overlaid text; avoid busy detail in the upper/center focal zone where type will sit.';
+    const refFinishedBanner =
+      'The image(s) immediately after this paragraph are the user’s **design reference**. Treat them as the **master style sheet**. Your output must **obviously** echo that reference in: **palette & contrast**, **illustration vs photo vs 3D**, **graphic motifs** (shapes, icons, ribbons, gradients, frames), and **typography layout** — **same text alignment** (left/center/right/mixed), **same type color treatments** (fills, outlines, shadows, gradients on type, panels behind type), and **same relative font-size hierarchy** (headline vs sub vs body vs CTA proportions). Use a **new** composition and **new** words from the brief only — do NOT near-duplicate the frame and do NOT copy any visible text, logos, trademarks, or watermarks from the reference(s). ' +
+      'The **next text message** is the full brief: render every headline, subheadline, body line, and CTA **inside the final image** exactly as specified there (Korean included).';
+    parts.push({
+      text: options.typographySafeBackground ? refBackgroundPlate : refFinishedBanner,
+    });
+    for (const img of options.referenceImages.slice(0, 3)) {
+      if (img.data && img.mimeType) {
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+      }
+    }
+    if (!options.typographySafeBackground) {
+      parts.push({
+        text: 'Above = the user’s attached design reference. Below = copy and scene instructions. When you generate the image, **intentionally mirror** that reference’s **alignment of text blocks**, **type size ratios**, **type colors/effects**, **palette**, and **graphic elements** so the result clearly looks “designed in the same system.”',
+      });
+    }
+  }
+  parts.push({ text: prompt });
 
   const response = await retryWithBackoff(async () => {
     return await ai.models.generateContent({
       model: modelId,
       contents: {
-        parts: [{ text: prompt }],
+        parts,
       },
       config: {
         responseModalities: [Modality.IMAGE],

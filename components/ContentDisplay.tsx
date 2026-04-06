@@ -1,12 +1,9 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { CopyIcon, CheckIcon, SpreadsheetIcon } from './icons';
-import { generateImage } from '../services/geminiService';
+import { generateImage, type GenerateImageOptions } from '../services/geminiService';
 import { uploadImageToS3 } from '../services/s3Service';
 import type { UserInput } from '../types';
-import { GEMINI_BANNER_IMAGE_ENRICH_SUFFIX } from '../constants';
-
-const withBannerImageEnrichment = (prompt: string): string =>
-  `${prompt.trim()}\n\n${GEMINI_BANNER_IMAGE_ENRICH_SUFFIX}`;
+import { buildBannerImageGenerationPrompt } from '../constants';
  
 // 희엽님 계정 테스트 
 interface ContentDisplayProps {
@@ -25,6 +22,17 @@ interface ContentDisplayProps {
   bannerContentType?: UserInput['bannerContentType'];
   /** 배너 이미지 합성 프롬프트·생성 시 비율 반영 */
   bannerAspectRatio?: string;
+  /** Nano Banana 호출 시 선두 스타일 키워드 */
+  bannerDesignStyle?: UserInput['bannerDesignStyle'];
+  /** 배너/포스터 텍스트 레이어 합성(일반·기타 이벤트) */
+  bannerHeadline?: string;
+  bannerSubheadline?: string;
+  bannerBodyCopy?: string;
+  bannerCta?: string;
+  bannerAlignment?: string;
+  bannerTheme?: string;
+  /** 배너 배경 생성 시 예시 디자인 참고(멀티모달) */
+  bannerDesignReferenceImage?: UserInput['bannerDesignReferenceImage'];
   onRequestInstaCardWithReferenceText?: (text: string) => void;
 }
 
@@ -138,7 +146,6 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
   );
 };
 
-
 export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   content,
   suggestions,
@@ -154,6 +161,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   cutTexts,
   bannerContentType,
   bannerAspectRatio,
+  bannerDesignStyle,
+  bannerHeadline,
+  bannerSubheadline,
+  bannerBodyCopy,
+  bannerCta,
+  bannerAlignment,
+  bannerTheme,
+  bannerDesignReferenceImage,
   onRequestInstaCardWithReferenceText,
 }) => {
   const [copiedAll, setCopiedAll] = useState(false);
@@ -356,7 +371,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       parts.push(`Target aspect ratio / canvas: ${bannerAspectRatio.trim()}.`);
     }
     parts.push(
-      'Create a professional event banner or poster with strong visual design—not text alone on a flat background. Prefer flat illustration, vector-style graphics, icons, and shapes over photorealistic photos (photos only if essential). Ensure strong text contrast, clear hierarchy, optional semi-transparent panel behind type if needed. Include the following Korean copy as readable on-image typography (preserve wording exactly):'
+      'Create a professional event banner or poster with strong visual design—not text alone on a flat background. Prefer flat illustration, vector-style graphics, icons, and shapes over photorealistic photos (photos only if essential). Ensure strong text contrast and clear typographic hierarchy: headline largest; subheadline secondary; body copy inside a rounded card or panel with generous line spacing (1.5–1.8x feel) and paragraph gaps; CTA as a pill-shaped button or badge. Optional semi-transparent panels behind type where needed. Include the following Korean copy as readable on-image typography (preserve wording exactly):'
     );
     if (headline) parts.push(`Main headline (largest, prominent): ${headline}`);
     if (sub) parts.push(`Subheadline: ${sub}`);
@@ -565,11 +580,45 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     }
   }, []);
 
-  /** 본문 기반 배너 패널(랭킹·용어 등): API에 배너 시각 보강 접미사 포함 */
+  const nanoBananaBannerOptions = useMemo(
+    () => ({
+      designStyleId: bannerDesignStyle,
+      bannerContentType,
+      bannerAspectRatio,
+      /** 완성 배너(이미지 내 타이포 포함). 참고 이미지는 스타일만 반영 */
+      backgroundOnlyForTypographyOverlay: false,
+    }),
+    [bannerDesignStyle, bannerContentType, bannerAspectRatio]
+  );
+
+  const bannerImagePromptBuildOptions = useMemo(
+    () => ({
+      ...nanoBananaBannerOptions,
+      designReferenceImageAttached: Boolean(bannerDesignReferenceImage?.dataBase64),
+    }),
+    [nanoBananaBannerOptions, bannerDesignReferenceImage]
+  );
+
+  const bannerImageGenOptions: GenerateImageOptions | undefined = useMemo(() => {
+    if (format !== 'ETC-BANNER' || !bannerDesignReferenceImage?.dataBase64 || !bannerDesignReferenceImage.mimeType) {
+      return undefined;
+    }
+    return {
+      referenceImages: [
+        { mimeType: bannerDesignReferenceImage.mimeType, data: bannerDesignReferenceImage.dataBase64 },
+      ],
+    };
+  }, [format, bannerDesignReferenceImage]);
+
+  /** 본문 기반 배너 패널(랭킹·용어 등): 스타일·비율·유형 반영한 Nano Banana 프롬프트 */
   const handleGenerateDerivedBannerImage = useCallback(async (prompt: string) => {
     setImageStatuses((prev) => ({ ...prev, [prompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
     try {
-      const base64Image = await generateImage(withBannerImageEnrichment(prompt));
+      const base64Image = await generateImage(
+        buildBannerImageGenerationPrompt(prompt, bannerImagePromptBuildOptions),
+        undefined,
+        bannerImageGenOptions
+      );
       let s3Url: string | null = null;
       try {
         s3Url = await uploadImageToS3(base64Image, prompt);
@@ -592,7 +641,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         [prompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' },
       }));
     }
-  }, []);
+  }, [bannerImagePromptBuildOptions, bannerImageGenOptions]);
 
   const handleGenerateBannerImage = useCallback(async () => {
     if (!effectiveBannerImagePrompt) return;
@@ -603,7 +652,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       // 배너/포스터 포맷: Gemini 네이티브 이미지 모델
       setImageStatuses(prev => ({ ...prev, [promptKey]: { url: null, s3Url: null, isLoading: true, error: null } }));
       try {
-        const base64Image = await generateImage(withBannerImageEnrichment(promptKey));
+        const base64Image = await generateImage(
+          buildBannerImageGenerationPrompt(promptKey, bannerImagePromptBuildOptions),
+          undefined,
+          bannerImageGenOptions
+        );
         
         // S3에 업로드하여 전체 URL 가져오기
         let s3Url: string | null = null;
@@ -634,7 +687,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     } finally {
       setIsBannerImageGenerating(false);
     }
-  }, [effectiveBannerImagePrompt]);
+  }, [effectiveBannerImagePrompt, bannerImagePromptBuildOptions, bannerImageGenOptions]);
 
   const handleGenerateAllImages = useCallback(async () => {
     if (!imagePrompts.length) return;
@@ -1772,6 +1825,105 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     let bannerImagePromptContent: React.ReactNode[] = [];
     let inBannerGuidelines = false;
     let bannerGuidelinesContent: React.ReactNode[] = [];
+    let inBannerBodyField = false;
+    let bannerBodyFieldLines: string[] = [];
+    let eventBannerSectionKey: string | null = null;
+    let eventBannerSectionBuffer: string[] = [];
+
+    const sectionBadgeClass =
+      'inline-flex items-center rounded-full bg-[#004B49]/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-[#004B49]';
+
+    const flushBannerBodyField = () => {
+      if (!inBannerBodyField || bannerBodyFieldLines.length === 0) {
+        inBannerBodyField = false;
+        bannerBodyFieldLines = [];
+        return;
+      }
+      const joined = bannerBodyFieldLines.join('\n').trimEnd();
+      inBannerBodyField = false;
+      bannerBodyFieldLines = [];
+      if (!joined.trim()) return;
+      bannerTextElementsContent.push(
+        <div
+          key={`banner-bodycopy-${bannerTextElementsContent.length}`}
+          className="mb-4 rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm ring-1 ring-black/5"
+        >
+          <div className="mb-2">
+            <span className={sectionBadgeClass}>바디카피</span>
+          </div>
+          <div className="text-base text-gray-800 space-y-3 leading-[1.75] whitespace-pre-wrap">{joined}</div>
+        </div>
+      );
+    };
+
+    const flushEventPlainBannerSection = () => {
+      if (!eventBannerSectionKey) {
+        eventBannerSectionBuffer = [];
+        return;
+      }
+      const label = eventBannerSectionKey;
+      const raw = eventBannerSectionBuffer.join('\n');
+      eventBannerSectionBuffer = [];
+      eventBannerSectionKey = null;
+      const text = raw.trimEnd();
+      if (!text.trim()) return;
+
+      const cardBase = 'rounded-xl border border-gray-200 p-5 shadow-sm mb-4 ring-1 ring-black/5';
+      let block: React.ReactNode;
+
+      if (label === '헤드라인') {
+        block = (
+          <>
+            <span className={sectionBadgeClass}>헤드라인</span>
+            <p className="mt-3 text-3xl font-black text-gray-900 leading-tight whitespace-pre-wrap">{text}</p>
+          </>
+        );
+      } else if (label === '서브카피') {
+        block = (
+          <>
+            <span className={sectionBadgeClass}>서브카피</span>
+            <p className="mt-2 text-xl font-semibold text-gray-800 leading-snug whitespace-pre-wrap">{text}</p>
+          </>
+        );
+      } else if (label === '본문') {
+        const paras = text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+        block = (
+          <>
+            <span className={sectionBadgeClass}>본문</span>
+            <div className="mt-3 space-y-4 text-base text-gray-800 leading-[1.75]">
+              {paras.map((p, i) => (
+                <p key={i} className="whitespace-pre-wrap">
+                  {p}
+                </p>
+              ))}
+            </div>
+          </>
+        );
+      } else if (label === 'CTA') {
+        block = (
+          <div className="flex flex-col gap-2">
+            <span className={sectionBadgeClass}>CTA</span>
+            <span className="inline-flex w-fit max-w-full rounded-full bg-[#1FA77A] px-5 py-2.5 text-base font-bold text-white shadow-md whitespace-pre-wrap">
+              {text}
+            </span>
+          </div>
+        );
+      } else {
+        block = (
+          <>
+            <span className={`${sectionBadgeClass} bg-gray-100 text-gray-700`}>{label}</span>
+            <div className="mt-2 text-gray-700 whitespace-pre-wrap leading-relaxed">{text}</div>
+          </>
+        );
+      }
+
+      const cardBg = label === '본문' ? 'bg-slate-50/90' : 'bg-white';
+      elements.push(
+        <div key={`evt-banner-${elements.length}-${label}`} className={`${cardBase} ${cardBg}`}>
+          {block}
+        </div>
+      );
+    };
 
     const pushCard = () => {
       if (currentCard.length > 0) {
@@ -2028,7 +2180,24 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
 
     lines.forEach((line, index) => {
       const key = `line-${index}`;
-      
+
+      if (isPlainTextBannerSubtype) {
+        if (line.startsWith('후속 제안')) {
+          flushEventPlainBannerSection();
+          return;
+        }
+        const h2evt = line.match(/^##\s+(.+)$/);
+        if (h2evt) {
+          flushEventPlainBannerSection();
+          eventBannerSectionKey = h2evt[1].trim();
+          return;
+        }
+        if (eventBannerSectionKey) {
+          eventBannerSectionBuffer.push(line);
+          return;
+        }
+      }
+
       // 포스팅 글 섹션 시작
       if (line.startsWith('✍️ 포스팅 글')) {
         pushCard();
@@ -2130,10 +2299,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           inBannerTextElements = true;
           bannerTextElementsContent = [];
         } else if (line.startsWith('🎨 AI 이미지 생성 프롬프트')) {
+          flushBannerBodyField();
           inBannerTextElements = false;
           inBannerImagePrompt = true;
           bannerImagePromptContent = [];
         } else if (line.startsWith('💡 디자인 가이드라인')) {
+          flushBannerBodyField();
           inBannerImagePrompt = false;
           inBannerGuidelines = true;
           bannerGuidelinesContent = [];
@@ -2184,46 +2355,64 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed">{line.trim()}</p>
           );
           bannerDesignConceptContent.push(textElement);
-        } else if (inBannerTextElements && line.trim() && !line.startsWith('📝')) {
-          // 헤드라인, 서브헤드라인, CTA 파싱
+        } else if (inBannerTextElements && !line.startsWith('📝')) {
+          if (inBannerBodyField) {
+            const trimmed = line.trim();
+            if (trimmed && trimmed.match(/^[-•]\s*(헤드라인|서브헤드라인|CTA 문구):/)) {
+              flushBannerBodyField();
+            } else {
+              bannerBodyFieldLines.push(line);
+              return;
+            }
+          }
+          if (!line.trim()) {
+            return;
+          }
+          // 헤드라인, 서브헤드라인, 바디카피(다줄), CTA 파싱
           if (line.match(/^[-•]\s*헤드라인:/)) {
+            flushBannerBodyField();
             const headlineText = line.replace(/^[-•]\s*헤드라인:\s*/, '').trim();
             bannerTextElementsContent.push(
-              <div key="banner-headline" className="mb-4">
-                <div className="mb-1">
-                  <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">헤드라인</span>
+              <div
+                key={`banner-headline-${bannerTextElementsContent.length}`}
+                className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm ring-1 ring-black/5"
+              >
+                <div className="mb-2">
+                  <span className={sectionBadgeClass}>헤드라인</span>
                 </div>
-                <p className="text-2xl font-bold text-gray-900">{headlineText}</p>
+                <p className="text-2xl font-black text-gray-900 leading-tight whitespace-pre-wrap">{headlineText}</p>
               </div>
             );
           } else if (line.match(/^[-•]\s*서브헤드라인:/)) {
+            flushBannerBodyField();
             const subheadlineText = line.replace(/^[-•]\s*서브헤드라인:\s*/, '').trim();
             bannerTextElementsContent.push(
-              <div key="banner-subheadline" className="mb-4">
-                <div className="mb-1">
-                  <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">서브헤드라인</span>
+              <div
+                key={`banner-subheadline-${bannerTextElementsContent.length}`}
+                className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-sm"
+              >
+                <div className="mb-2">
+                  <span className={sectionBadgeClass}>서브헤드라인</span>
                 </div>
-                <p className="text-xl font-semibold text-gray-800">{subheadlineText}</p>
+                <p className="text-xl font-semibold text-gray-800 leading-snug whitespace-pre-wrap">{subheadlineText}</p>
               </div>
             );
           } else if (line.match(/^[-•]\s*바디카피:/)) {
+            flushBannerBodyField();
             const bodyCopyText = line.replace(/^[-•]\s*바디카피:\s*/, '').trim();
-            bannerTextElementsContent.push(
-              <div key="banner-bodycopy" className="mb-4">
-                <div className="mb-1">
-                  <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">바디카피</span>
-                </div>
-                <p className="text-base text-gray-700 leading-relaxed whitespace-pre-line">{bodyCopyText}</p>
-              </div>
-            );
+            bannerBodyFieldLines = bodyCopyText ? [bodyCopyText] : [];
+            inBannerBodyField = true;
           } else if (line.match(/^[-•]\s*CTA 문구:/)) {
+            flushBannerBodyField();
             const ctaText = line.replace(/^[-•]\s*CTA 문구:\s*/, '').trim();
             bannerTextElementsContent.push(
-              <div key="banner-cta" className="mb-4">
-                <div className="mb-1">
-                  <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">CTA</span>
+              <div key={`banner-cta-${bannerTextElementsContent.length}`} className="mb-4">
+                <div className="mb-2">
+                  <span className={sectionBadgeClass}>CTA</span>
                 </div>
-                <p className="text-lg font-semibold text-[#1FA77A]">{ctaText}</p>
+                <span className="inline-flex w-fit max-w-full rounded-full bg-[#1FA77A] px-4 py-2 text-base font-bold text-white shadow-md whitespace-pre-wrap">
+                  {ctaText}
+                </span>
               </div>
             );
           } else if (line.trim()) {
@@ -2610,6 +2799,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       }
     });
 
+    flushBannerBodyField();
+    flushEventPlainBannerSection();
+
     // 배너/포스터 포맷 섹션 push
     if (isBannerFormat) {
       if (bannerTitleContent.length > 0) {
@@ -2674,7 +2866,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           <div key="banner-image-prompt" className="mb-8 pt-6 border-t border-gray-200">
             <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
               <span className="mr-2">🎨</span>
-              AI 이미지 생성 프롬프트 (구글 나노바나나 등)
+              AI 이미지 생성 프롬프트
             </h3>
             <div className="space-y-3">
               {bannerImagePromptContent}
@@ -2685,7 +2877,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                     onGenerate={(prompt) => {
                       // 배너/포스터 포맷: Gemini 네이티브 이미지 모델
                       setImageStatuses(prev => ({ ...prev, [prompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
-                      generateImage(withBannerImageEnrichment(prompt))
+                      generateImage(
+                        buildBannerImageGenerationPrompt(prompt, bannerImagePromptBuildOptions),
+                        undefined,
+                        bannerImageGenOptions
+                      )
                         .then(async (base64Image) => {
                           let s3Url: string | null = null;
                           try {
@@ -2836,7 +3032,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     }
     
     return elements;
-  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, handleGenerateDerivedBannerImage, isNaverBlogFormat, isBannerFormat, isPlainTextBannerSubtype, bannerImagePrompt, bannerContentType, eventBannerImagePrompt, extraBannerImagePanelPrompt, sources]);
+  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, handleGenerateDerivedBannerImage, isNaverBlogFormat, isBannerFormat, isPlainTextBannerSubtype, bannerImagePrompt, bannerContentType, eventBannerImagePrompt, extraBannerImagePanelPrompt, bannerImagePromptBuildOptions, bannerImageGenOptions, sources]);
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
@@ -2880,6 +3076,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 <button 
                   onClick={handleGenerateBannerImage} 
                   disabled={isBannerImageGenerating}
+                  title={bannerImageGenOptions ? '첨부한 예시 이미지의 색·질감·일러스트/실사 등 스타일을 우선 반영해 배너를 만듭니다.' : undefined}
                   className="flex items-center text-sm bg-[#FF9500] hover:bg-[#e88500] text-white font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
                   {isBannerImageGenerating ? (

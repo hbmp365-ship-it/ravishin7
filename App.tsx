@@ -110,6 +110,14 @@ const App: React.FC = () => {
               cutTexts={lastUserInput?.cutTexts}
               bannerContentType={lastUserInput?.bannerContentType}
               bannerAspectRatio={lastUserInput?.aspectRatio}
+              bannerDesignStyle={lastUserInput?.bannerDesignStyle}
+              bannerHeadline={lastUserInput?.headline}
+              bannerSubheadline={lastUserInput?.subheadline}
+              bannerBodyCopy={lastUserInput?.bodyCopy}
+              bannerCta={lastUserInput?.cta}
+              bannerAlignment={lastUserInput?.alignment}
+              bannerTheme={lastUserInput?.theme}
+              bannerDesignReferenceImage={lastUserInput?.bannerDesignReferenceImage}
               onRequestInstaCardWithReferenceText={handleRequestInstaCardWithReferenceText}
             />
           </div>

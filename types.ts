@@ -1,3 +1,9 @@
+/** 배너/포스터 → Nano Banana 이미지 생성 시 선두에 붙는 디자인 스타일 */
+export type BannerDesignStyleId =
+  | 'minimal_clean'
+  | 'business_luxury'
+  | 'modern_illustration'
+  | 'dynamic_sporty';
 
 export interface UserInput {
   category: string;
@@ -18,7 +24,6 @@ export interface UserInput {
   subheadline?: string;
   bodyCopy?: string;
   cta?: string;
-  imageGeneratorTool?: string;
   alignment?: string;
   isGolfRelated?: boolean;
   cutCount?: number;
@@ -28,6 +33,22 @@ export interface UserInput {
   bannerGolfCourseName?: string;
   /** 골프용어사전: 입문자 | 중급자 | 고급자 */
   golfDictionaryLevel?: '입문자' | '중급자' | '고급자';
+  /** 배너/포스터 전용: 이미지 생성(Nano Banana) 프롬프트 선두 스타일 키워드 */
+  bannerDesignStyle?: BannerDesignStyleId;
+  /**
+   * 배너/포스터 전 유형 공통: true면 미입력·짧은 입력을 AI가 보완(일반·이벤트: 부제·본문·CTA 등).
+   * false(기본)면 일반·이벤트는 입력한 문구만 반영·미입력 섹션 생략; 인포·랭킹·골프장·용어는 과도한 추측·가공 수치 없이 보수적으로.
+   */
+  bannerAutoFillEmptyFields?: boolean;
+  /**
+   * 배너/포스터(ETC-BANNER): 배경 이미지 생성 시 참고할 예시 디자인(구도·색감 등).
+   * 텍스트·로고는 재현하지 말 것을 API 프롬프트로 지시함.
+   */
+  bannerDesignReferenceImage?: { mimeType: string; dataBase64: string };
+  /**
+   * 배너/포스터 전 유형 공통: 콘텐츠·이미지 생성 시 반영할 사용자 지정 이미지 프롬프트(구도·색·스타일 등).
+   */
+  bannerAiImagePromptHint?: string;
 }
 
 export interface GeneratedContent {

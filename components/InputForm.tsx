@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { UserInput } from '../types';
+import type { UserInput, BannerDesignStyleId } from '../types';
 
 type BannerContentType = NonNullable<UserInput['bannerContentType']>;
-import { CATEGORIES, BLOG_CATEGORIES, FORMATS, BLOG_LENGTHS, TONES, VIDEO_LENGTHS, CATEGORY_KEYWORDS, BLOG_CATEGORY_KEYWORDS, FORMAT_LABELS, ASPECT_RATIOS, BANNER_STYLES, THEME_OPTIONS, IMAGE_GENERATOR_TOOLS, ALIGNMENT_OPTIONS } from '../constants';
+import { CATEGORIES, BLOG_CATEGORIES, FORMATS, BLOG_LENGTHS, TONES, VIDEO_LENGTHS, CATEGORY_KEYWORDS, BLOG_CATEGORY_KEYWORDS, FORMAT_LABELS, ASPECT_RATIOS, BANNER_DESIGN_STYLES, DEFAULT_BANNER_DESIGN_STYLE_ID, BANNER_STYLES, THEME_OPTIONS, ALIGNMENT_OPTIONS } from '../constants';
 import { SparklesIcon, QuestionMarkCircleIcon, RefreshIcon, InstagramIcon, BlogIcon, YouTubeShortsIcon, BannerIcon } from './icons';
 
 interface InputFormProps {
@@ -69,10 +69,10 @@ export const InputForm: React.FC<InputFormProps> = ({
   const [cutTexts, setCutTexts] = useState<string[]>(['']);
   const [tone, setTone] = useState(TONES[0]);
   const [aspectRatio, setAspectRatio] = useState(ASPECT_RATIOS[0].value);
-  const [theme, setTheme] = useState(THEME_OPTIONS[0].value);
-  const [style, setStyle] = useState(BANNER_STYLES[0].value);
-  const [imageGeneratorTool, setImageGeneratorTool] = useState(IMAGE_GENERATOR_TOOLS[0].value);
-  const [alignment, setAlignment] = useState(ALIGNMENT_OPTIONS[0].value); // Center aligned
+  /** 배너 디자인 옵션(일반): null = 미선택(기본값은 생성 시에만 적용) */
+  const [theme, setTheme] = useState<string | null>(null);
+  const [style, setStyle] = useState<string | null>(null);
+  const [alignment, setAlignment] = useState<string | null>(null);
   const [headline, setHeadline] = useState('');
   const [subheadline, setSubheadline] = useState('');
   const [bodyCopy, setBodyCopy] = useState('');
@@ -80,6 +80,30 @@ export const InputForm: React.FC<InputFormProps> = ({
   const [bannerContentType, setBannerContentType] = useState<BannerContentType>('일반');
   const [bannerGolfCourseName, setBannerGolfCourseName] = useState('');
   const [golfDictionaryLevel, setGolfDictionaryLevel] = useState<'입문자' | '중급자' | '고급자'>('입문자');
+  const [bannerDesignStyle, setBannerDesignStyle] = useState<BannerDesignStyleId>(DEFAULT_BANNER_DESIGN_STYLE_ID);
+  /** false(기본): 입력한 문구 필드만 출력 / true: 비어 있는 필드는 AI가 채움 */
+  const [bannerAutoFillEmptyFields, setBannerAutoFillEmptyFields] = useState(false);
+  /** 배너 배경(Nano Banana) 참고용 예시 이미지 — 디자인만 참고, 텍스트는 UI에서 합성 */
+  const [bannerDesignReferenceFile, setBannerDesignReferenceFile] = useState<File | null>(null);
+  const [bannerDesignReferenceObjectUrl, setBannerDesignReferenceObjectUrl] = useState<string | null>(null);
+  /** 배너 전 유형 공통: 디자인 옵션 접기/펼치기 (기본 접힘) */
+  const [bannerDesignOptionsOpen, setBannerDesignOptionsOpen] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (bannerDesignReferenceObjectUrl) URL.revokeObjectURL(bannerDesignReferenceObjectUrl);
+    };
+  }, [bannerDesignReferenceObjectUrl]);
+
+  useEffect(() => {
+    if (format !== 'ETC-BANNER') {
+      setBannerDesignReferenceFile(null);
+      setBannerDesignReferenceObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    }
+  }, [format]);
 
   useEffect(() => {
     if (instaCardPrefill != null && instaCardPrefill !== '') {
@@ -130,8 +154,88 @@ export const InputForm: React.FC<InputFormProps> = ({
   }, [format, getRandomKeywordForCategory, isKeywordManuallySet]);
 
   const isEventBannerForm = format === 'ETC-BANNER' && bannerContentType === '기타 이벤트 배너';
+  const isGeneralBannerContent = bannerContentType === '일반';
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    setBannerDesignOptionsOpen(false);
+  }, [bannerContentType]);
+
+  useEffect(() => {
+    if (format === 'ETC-BANNER' && bannerDesignReferenceFile !== null) {
+      setBannerDesignOptionsOpen(true);
+    }
+  }, [format, bannerDesignReferenceFile]);
+
+  /** 일반 배너: 테마·시각적 스타일·정렬 중 하나라도 선택되면 참고 이미지 불가 */
+  const generalBannerDesignOptionAnySelected =
+    theme !== null || style !== null || alignment !== null;
+  const generalBannerReferenceUploadBlocked =
+    isGeneralBannerContent && generalBannerDesignOptionAnySelected;
+
+  const bannerDesignOptionsConfigured =
+    generalBannerDesignOptionAnySelected || bannerDesignStyle !== DEFAULT_BANNER_DESIGN_STYLE_ID;
+
+  /** 배너 전 유형: 예시 참고 이미지가 있으면 디자인 옵션(스타일·테마 등) 변경 불가 */
+  const bannerReferenceLocksDesignOptions =
+    format === 'ETC-BANNER' && bannerDesignReferenceFile !== null;
+
+  /** 일반으로 돌아왔을 때 디자인 옵션이 하나라도 선택된 채로 참고 이미지만 있는 모순 정리 */
+  useEffect(() => {
+    if (format !== 'ETC-BANNER' || bannerContentType !== '일반') return;
+    if (!bannerDesignReferenceFile) return;
+    if (!generalBannerDesignOptionAnySelected) return;
+    setBannerDesignReferenceFile(null);
+    setBannerDesignReferenceObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    const el = document.getElementById('bannerDesignReference') as HTMLInputElement | null;
+    if (el) el.value = '';
+  }, [format, bannerContentType, bannerDesignReferenceFile, generalBannerDesignOptionAnySelected]);
+
+  const handleBannerDesignReferenceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) {
+      setBannerDesignReferenceFile(null);
+      setBannerDesignReferenceObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      return;
+    }
+    if (format === 'ETC-BANNER' && bannerContentType === '일반' && generalBannerDesignOptionAnySelected) {
+      alert(
+        '일반 배너에서는 디자인 옵션(테마·시각적 스타일·정렬)을 아무것도 선택하지 않았을 때만 참고 이미지를 등록할 수 있습니다. 선택한 항목을 해제한 뒤 다시 시도하세요.'
+      );
+      e.target.value = '';
+      return;
+    }
+    if (f.size > 7 * 1024 * 1024) {
+      alert('참고 이미지는 7MB 이하만 업로드할 수 있습니다.');
+      e.target.value = '';
+      return;
+    }
+    if (!/^image\/(png|jpeg|jpg|webp)$/i.test(f.type)) {
+      alert('PNG, JPEG, WebP 이미지만 지원합니다.');
+      e.target.value = '';
+      return;
+    }
+    setBannerDesignReferenceFile(f);
+    setBannerDesignReferenceObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(f);
+    });
+  };
+
+  const clearBannerDesignReference = () => {
+    setBannerDesignReferenceFile(null);
+    setBannerDesignReferenceObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const isBlogFormat = format === 'NAVER-BLOG/BAND';
     const isBannerFormat = format === 'ETC-BANNER';
@@ -152,7 +256,28 @@ export const InputForm: React.FC<InputFormProps> = ({
     }
     
     const isYouTubeFormat = format === 'YOUTUBE-SHORTFORM';
-    
+
+    let bannerDesignReferenceImage: UserInput['bannerDesignReferenceImage'];
+    if (isBannerFormat && bannerDesignReferenceFile) {
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(bannerDesignReferenceFile);
+        });
+        const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (m) {
+          let mimeType = m[1].trim();
+          if (mimeType === 'image/jpg') mimeType = 'image/jpeg';
+          bannerDesignReferenceImage = { mimeType, dataBase64: m[2] };
+        }
+      } catch {
+        alert('참고 이미지를 읽는 데 실패했습니다.');
+        return;
+      }
+    }
+
     const userInput: UserInput = {
       isGolfRelated,
       category: format === 'INSTAGRAM-CARD' ? '데일리 뉴스' : (currentCategory === '직접 입력' ? customCategory : currentCategory),
@@ -171,10 +296,18 @@ export const InputForm: React.FC<InputFormProps> = ({
       sceneCount,
       tone: isBannerFormat || isYouTubeFormat ? '' : tone,
       aspectRatio: isBannerFormat ? aspectRatio : undefined,
-      theme: isBannerFormat && bannerContentType !== '기타 이벤트 배너' ? theme : undefined,
-      style: isBannerFormat && bannerContentType !== '기타 이벤트 배너' ? style : undefined,
-      imageGeneratorTool: isBannerFormat && bannerContentType !== '기타 이벤트 배너' ? imageGeneratorTool : undefined,
-      alignment: isBannerFormat && bannerContentType !== '기타 이벤트 배너' ? alignment : undefined,
+      theme:
+        isBannerFormat && bannerContentType !== '기타 이벤트 배너'
+          ? theme ?? THEME_OPTIONS[0].value
+          : undefined,
+      style:
+        isBannerFormat && bannerContentType !== '기타 이벤트 배너'
+          ? style ?? BANNER_STYLES[0].value
+          : undefined,
+      alignment:
+        isBannerFormat && bannerContentType !== '기타 이벤트 배너'
+          ? alignment ?? ALIGNMENT_OPTIONS[0].value
+          : undefined,
       headline: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? headline : undefined,
       subheadline: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? subheadline : undefined,
       bodyCopy: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? bodyCopy : undefined,
@@ -182,6 +315,9 @@ export const InputForm: React.FC<InputFormProps> = ({
       bannerContentType: isBannerFormat ? bannerContentType : undefined,
       bannerGolfCourseName: isBannerFormat && bannerContentType === '어디로칠까' ? bannerGolfCourseName.trim() : undefined,
       golfDictionaryLevel: isBannerFormat && bannerContentType === '골프용어사전' ? golfDictionaryLevel : undefined,
+      bannerDesignStyle: isBannerFormat ? bannerDesignStyle : undefined,
+      bannerAutoFillEmptyFields: isBannerFormat ? bannerAutoFillEmptyFields : undefined,
+      bannerDesignReferenceImage: isBannerFormat ? bannerDesignReferenceImage : undefined,
       cutCount: isYouTubeFormat ? cutCount : undefined,
       cutTexts: isYouTubeFormat ? cutTexts : undefined,
     };
@@ -328,6 +464,42 @@ export const InputForm: React.FC<InputFormProps> = ({
                 </option>
               ))}
             </select>
+            {bannerContentType === '인포그래픽' && (
+              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>인포그래픽 유형</strong>이 선택되었습니다. 주제/키워드를 입력하여 인포그래픽 컨텐츠를 생성하세요.
+                </p>
+              </div>
+            )}
+            {bannerContentType === '랭킹오브더월드' && (
+              <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-900">
+                  골프와 연관된 <strong>랭킹 주제</strong>를 입력하면 Top 10과 인스타 포스팅 글을 생성합니다.
+                </p>
+              </div>
+            )}
+            {bannerContentType === '어디로칠까' && (
+              <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <p className="text-sm text-emerald-900">
+                  국내 골프장 이름을 입력하면 정보 요약과 인스타 포스팅 글을 만듭니다. 생성 후 결과 화면에서{' '}
+                  <strong>인스타 카드로 만들기</strong>로 참고 텍스트를 넘길 수 있습니다.
+                </p>
+              </div>
+            )}
+            {bannerContentType === '골프용어사전' && (
+              <div className="mt-3 p-3 bg-violet-50 border border-violet-200 rounded-lg">
+                <p className="text-sm text-violet-900">난이도에 맞는 골프 용어 10개와 인스타 포스팅 글을 생성합니다.</p>
+              </div>
+            )}
+            {isEventBannerForm && (
+              <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <p className="text-sm text-slate-800">
+                  <strong>기타 이벤트 배너</strong>: <span className="text-red-600 font-medium">제목</span>만 필수입니다. 아래{' '}
+                  <strong>비어 있는 문구 항목을 AI가 자동으로 채우기</strong>에서 부제·본문·CTA 보완 여부를 선택하세요.{' '}
+                  <strong>기본 비율</strong>·「<strong>디자인 옵션</strong>」의 <strong>디자인 스타일</strong>은 이미지 생성에 반영됩니다.
+                </p>
+              </div>
+            )}
           </div>
           <div>
             <label htmlFor="aspectRatio" className={`${commonLabelClass} mb-1`}>기본 비율</label>
@@ -338,6 +510,279 @@ export const InputForm: React.FC<InputFormProps> = ({
                 </option>
               ))}
             </select>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50/90 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setBannerDesignOptionsOpen((o) => !o)}
+              aria-expanded={bannerDesignOptionsOpen}
+              title={
+                bannerReferenceLocksDesignOptions
+                  ? '참고 이미지 사용 중에는 디자인 옵션을 변경할 수 없습니다. 제거 후 수정하세요.'
+                  : undefined
+              }
+              className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-gray-100/90"
+            >
+              <span className="flex flex-col gap-0.5 min-w-0">
+                <span className={`${commonLabelClass} !mb-0`}>디자인 옵션</span>
+                <span className="text-xs text-gray-500 font-normal">
+                  {isGeneralBannerContent
+                    ? '디자인 스타일(Nano Banana)·테마·시각적 스타일·정렬 — 펼쳐서 설정합니다. 테마·스타일·정렬은 처음엔 미선택이며, 같은 버튼을 다시 누르면 해제됩니다.'
+                    : '디자인 스타일(Nano Banana) — 펼쳐서 이미지 생성 톤을 선택합니다.'}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {bannerDesignOptionsConfigured && (
+                  <span className="text-xs font-medium text-[#004B49] whitespace-nowrap">설정됨</span>
+                )}
+                <svg
+                  className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${bannerDesignOptionsOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </span>
+            </button>
+            {bannerDesignOptionsOpen && (
+              <div className="border-t border-gray-200 bg-white px-3 pt-4 pb-4 space-y-6">
+                <div>
+                  <label htmlFor="bannerDesignStyle" className={`${commonLabelClass} mb-1`}>
+                    디자인 스타일 <span className="text-gray-400 font-normal text-xs">(Nano Banana 이미지)</span>
+                  </label>
+                  <select
+                    id="bannerDesignStyle"
+                    value={bannerDesignStyle}
+                    onChange={(e) => setBannerDesignStyle(e.target.value as BannerDesignStyleId)}
+                    disabled={bannerReferenceLocksDesignOptions}
+                    className={`${selectInputClass} ${bannerReferenceLocksDesignOptions ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    {BANNER_DESIGN_STYLES.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {BANNER_DESIGN_STYLES.find((s) => s.id === bannerDesignStyle)?.descriptionKo}
+                  </p>
+                </div>
+                {isGeneralBannerContent && (
+                  <>
+                    <div>
+                      <label className={`${commonLabelClass} mb-2`}>테마 옵션</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {THEME_OPTIONS.map((themeOption) => {
+                          const isSelected = theme === themeOption.value;
+                          const isDark = themeOption.value === '다크모드';
+                          const icon = isDark ? (
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                              />
+                            </svg>
+                          ) : (
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                              />
+                            </svg>
+                          );
+                          return (
+                            <button
+                              key={themeOption.value}
+                              type="button"
+                              disabled={bannerReferenceLocksDesignOptions}
+                              onClick={() =>
+                                setTheme((prev) => (prev === themeOption.value ? null : themeOption.value))
+                              }
+                              className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                                isSelected
+                                  ? 'border-[#004B49] bg-[#004B49]/5'
+                                  : 'border-gray-200 hover:border-[#004B49]/50'
+                              }`}
+                            >
+                              <div className={`flex-shrink-0 ${isSelected ? 'text-[#004B49]' : 'text-gray-600'}`}>
+                                {icon}
+                              </div>
+                              <div className="text-left flex-1">
+                                <div
+                                  className={`text-sm font-semibold ${isSelected ? 'text-[#004B49]' : 'text-gray-700'}`}
+                                >
+                                  {themeOption.label}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-0.5">{themeOption.description}</div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <label className={`${commonLabelClass} mb-2`}>시각적 스타일</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {BANNER_STYLES.map((s) => {
+                          const isSelected = style === s.value;
+                          let iconEl;
+                          if (s.value === '이미지 기반 스타일') {
+                            iconEl = (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                                />
+                              </svg>
+                            );
+                          } else if (s.value === '그래픽 기반 스타일') {
+                            iconEl = (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
+                                />
+                              </svg>
+                            );
+                          } else {
+                            iconEl = (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                />
+                              </svg>
+                            );
+                          }
+                          return (
+                            <button
+                              key={s.value}
+                              type="button"
+                              disabled={bannerReferenceLocksDesignOptions}
+                              onClick={() => setStyle((prev) => (prev === s.value ? null : s.value))}
+                              className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                                isSelected
+                                  ? 'border-[#004B49] bg-[#004B49]/5 text-[#004B49]'
+                                  : 'border-gray-200 hover:border-[#004B49]/50 text-gray-600 hover:text-[#004B49]'
+                              }`}
+                            >
+                              {iconEl}
+                              <span className="text-xs font-medium mt-1.5 text-center leading-tight">{s.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <label className={`${commonLabelClass} mb-2`}>정렬 옵션</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {ALIGNMENT_OPTIONS.map((align) => {
+                          const isSelected = alignment === align.value;
+                          let iconEl;
+                          if (align.value === 'Center aligned') {
+                            iconEl = (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                              </svg>
+                            );
+                          } else if (align.value === 'Left aligned') {
+                            iconEl = (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h12M4 18h8" />
+                              </svg>
+                            );
+                          } else {
+                            iconEl = (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M8 12h12M12 18h8" />
+                              </svg>
+                            );
+                          }
+                          return (
+                            <button
+                              key={align.value}
+                              type="button"
+                              disabled={bannerReferenceLocksDesignOptions}
+                              onClick={() =>
+                                setAlignment((prev) => (prev === align.value ? null : align.value))
+                              }
+                              className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                                isSelected
+                                  ? 'border-[#004B49] bg-[#004B49]/5 text-[#004B49]'
+                                  : 'border-gray-200 hover:border-[#004B49]/50 text-gray-600 hover:text-[#004B49]'
+                              }`}
+                            >
+                              {iconEl}
+                              <span className="text-xs font-medium mt-1.5">{align.label.replace(' aligned', '')}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <div>
+            <label htmlFor="bannerDesignReference" className={`${commonLabelClass} mb-1`}>
+              예시 디자인 참고 이미지 <span className="text-gray-400 font-normal text-xs">(선택)</span>
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              배경 이미지 생성 시 구도·색감·무드만 참고합니다. 글자·로고는 복제하지 않도록 API에 지시합니다. (일반·이벤트 배너의 CSS 텍스트 합성 흐름과 함께 사용 가능)
+            </p>
+            {bannerReferenceLocksDesignOptions && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mb-2">
+                예시 참고 이미지를 사용 중입니다. 「디자인 옵션」은 레퍼런스와의 충돌을 막기 위해 비활성화되었습니다. 변경하려면 참고 이미지를 제거하세요.
+              </p>
+            )}
+            {isGeneralBannerContent && generalBannerReferenceUploadBlocked && (
+              <p className="text-xs text-slate-700 bg-slate-100 border border-slate-200 rounded-md px-2 py-1.5 mb-2">
+                일반 배너에서는 「디자인 옵션」에서 테마·시각적 스타일·정렬을 하나도 선택하지 않았을 때만 참고 이미지를 등록할 수 있습니다. 선택을 모두 해제하면 첨부할 수 있습니다.
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                id="bannerDesignReference"
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                disabled={isGeneralBannerContent && (generalBannerReferenceUploadBlocked || bannerDesignReferenceFile !== null)}
+                onChange={handleBannerDesignReferenceChange}
+                className={`block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-[#004B49] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-[#003a38] disabled:opacity-50 disabled:cursor-not-allowed`}
+              />
+              {bannerDesignReferenceObjectUrl && (
+                <>
+                  <img
+                    src={bannerDesignReferenceObjectUrl}
+                    alt="참고 이미지 미리보기"
+                    className="h-16 w-auto max-w-[120px] rounded border border-gray-200 object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearBannerDesignReference();
+                      const el = document.getElementById('bannerDesignReference') as HTMLInputElement | null;
+                      if (el) el.value = '';
+                    }}
+                    className="text-xs text-gray-600 underline"
+                  >
+                    제거
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </>
       )}
@@ -551,11 +996,6 @@ export const InputForm: React.FC<InputFormProps> = ({
         <>
           {bannerContentType === '인포그래픽' && (
             <>
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
-                <p className="text-sm text-blue-800">
-                  <strong>인포그래픽 유형</strong>이 선택되었습니다. 주제/키워드를 입력하여 인포그래픽 컨텐츠를 생성하세요.
-                </p>
-              </div>
               <div>
                 <label htmlFor="keyword" className={`${commonLabelClass} mb-1`}>주제 / 키워드</label>
                 <input 
@@ -574,11 +1014,6 @@ export const InputForm: React.FC<InputFormProps> = ({
           )}
           {bannerContentType === '랭킹오브더월드' && (
             <>
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg mb-4">
-                <p className="text-sm text-amber-900">
-                  골프와 연관된 <strong>랭킹 주제</strong>를 입력하면 Top 10과 인스타 포스팅 글을 생성합니다.
-                </p>
-              </div>
               <div>
                 <label htmlFor="keyword-ranking" className={`${commonLabelClass} mb-1`}>랭킹 주제 / 키워드</label>
                 <input
@@ -597,11 +1032,6 @@ export const InputForm: React.FC<InputFormProps> = ({
           )}
           {bannerContentType === '어디로칠까' && (
             <>
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg mb-4">
-                <p className="text-sm text-emerald-900">
-                  국내 골프장 이름을 입력하면 정보 요약과 인스타 포스팅 글을 만듭니다. 생성 후 결과 화면에서 <strong>인스타 카드로 만들기</strong>로 참고 텍스트를 넘길 수 있습니다.
-                </p>
-              </div>
               <div>
                 <label htmlFor="bannerGolfCourseName" className={`${commonLabelClass} mb-1`}>골프장 이름</label>
                 <input
@@ -617,11 +1047,6 @@ export const InputForm: React.FC<InputFormProps> = ({
           )}
           {bannerContentType === '골프용어사전' && (
             <>
-              <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg mb-4">
-                <p className="text-sm text-violet-900">
-                  난이도에 맞는 골프 용어 10개와 인스타 포스팅 글을 생성합니다.
-                </p>
-              </div>
               <div>
                 <label htmlFor="golfDictionaryLevel" className={`${commonLabelClass} mb-1`}>난이도</label>
                 <select
@@ -636,156 +1061,6 @@ export const InputForm: React.FC<InputFormProps> = ({
                 </select>
               </div>
             </>
-          )}
-          {isEventBannerForm && (
-          <>
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-2">
-              <p className="text-sm text-slate-800">
-                <strong>기타 이벤트 배너</strong>: <span className="text-red-600 font-medium">제목</span>만 필수입니다. 배너에 넣을 <strong>문구(헤드라인·서브카피·본문·CTA)</strong>를 정리해 드리며, 위에서 고른 <strong>기본 비율</strong>은 이미지 생성 시 반영됩니다. 입력한 문구는 그대로 두고, 비운 칸만 AI가 채웁니다.
-              </p>
-            </div>
-          </>
-          )}
-          {bannerContentType === '일반' && (
-          <>
-          <div>
-            <label className={`${commonLabelClass} mb-2`}>테마 옵션</label>
-            <div className="grid grid-cols-2 gap-3">
-              {THEME_OPTIONS.map(themeOption => {
-                const isSelected = theme === themeOption.value;
-                const isDark = themeOption.value === '다크모드';
-                const icon = isDark ? (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                  </svg>
-                ) : (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                );
-                return (
-                  <button
-                    key={themeOption.value}
-                    type="button"
-                    onClick={() => setTheme(themeOption.value)}
-                    className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? 'border-[#004B49] bg-[#004B49]/5'
-                        : 'border-gray-200 hover:border-[#004B49]/50'
-                    }`}
-                  >
-                    <div className={`flex-shrink-0 ${isSelected ? 'text-[#004B49]' : 'text-gray-600'}`}>
-                      {icon}
-                    </div>
-                    <div className="text-left flex-1">
-                      <div className={`text-sm font-semibold ${isSelected ? 'text-[#004B49]' : 'text-gray-700'}`}>
-                        {themeOption.label}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        {themeOption.description}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <label className={`${commonLabelClass} mb-2`}>시각적 스타일</label>
-            <div className="grid grid-cols-3 gap-2">
-              {BANNER_STYLES.map(s => {
-                const isSelected = style === s.value;
-                let icon;
-                if (s.value === '이미지 기반 스타일') {
-                  icon = (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  );
-                } else if (s.value === '그래픽 기반 스타일') {
-                  icon = (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-                    </svg>
-                  );
-                } else {
-                  icon = (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  );
-                }
-                return (
-                  <button
-                    key={s.value}
-                    type="button"
-                    onClick={() => setStyle(s.value)}
-                    className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? 'border-[#004B49] bg-[#004B49]/5 text-[#004B49]'
-                        : 'border-gray-200 hover:border-[#004B49]/50 text-gray-600 hover:text-[#004B49]'
-                    }`}
-                  >
-                    {icon}
-                    <span className="text-xs font-medium mt-1.5 text-center leading-tight">{s.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <label className={`${commonLabelClass} mb-2`}>정렬 옵션</label>
-            <div className="grid grid-cols-3 gap-2">
-              {ALIGNMENT_OPTIONS.map(align => {
-                const isSelected = alignment === align.value;
-                let icon;
-                if (align.value === 'Center aligned') {
-                  icon = (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                  );
-                } else if (align.value === 'Left aligned') {
-                  icon = (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h12M4 18h8" />
-                    </svg>
-                  );
-                } else {
-                  icon = (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M8 12h12M12 18h8" />
-                    </svg>
-                  );
-                }
-                return (
-                  <button
-                    key={align.value}
-                    type="button"
-                    onClick={() => setAlignment(align.value)}
-                    className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? 'border-[#004B49] bg-[#004B49]/5 text-[#004B49]'
-                        : 'border-gray-200 hover:border-[#004B49]/50 text-gray-600 hover:text-[#004B49]'
-                    }`}
-                  >
-                    {icon}
-                    <span className="text-xs font-medium mt-1.5">{align.label.replace(' aligned', '')}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <label htmlFor="imageGeneratorTool" className={`${commonLabelClass} mb-1`}>이미지 생성 프롬프트 모델</label>
-            <select id="imageGeneratorTool" value={imageGeneratorTool} onChange={(e) => setImageGeneratorTool(e.target.value)} className={selectInputClass}>
-              {IMAGE_GENERATOR_TOOLS.map(tool => <option key={tool.value} value={tool.value}>{tool.label}</option>)}
-            </select>
-            <p className="mt-1.5 text-xs text-gray-500">
-              💡 선택된 모델에 최적화된 프롬프트 제공
-            </p>
-          </div>
-          </>
           )}
           {(isEventBannerForm || bannerContentType === '일반') && (
           <>
@@ -843,7 +1118,15 @@ export const InputForm: React.FC<InputFormProps> = ({
               value={subheadline}
               onChange={(e) => setSubheadline(e.target.value)}
               className={commonInputClass}
-              placeholder={isEventBannerForm ? '부제목 (비우면 AI가 제목에 맞게 작성)' : '보조 메시지를 입력하세요 (입력하지 않으면 자동 생성)'}
+              placeholder={
+                isEventBannerForm
+                  ? bannerAutoFillEmptyFields
+                    ? '부제목 (비우면 AI가 제목에 맞게 작성)'
+                    : '부제목 (비우면 결과에서 생략)'
+                  : bannerAutoFillEmptyFields
+                    ? '보조 메시지 (비우면 자동 생성)'
+                    : '보조 메시지 (비우면 결과에서 생략)'
+              }
             />
             {isEventBannerForm && subheadline.length > 0 && (
               <p className="mt-1 text-xs text-blue-600">입력한 부제목은 수정 없이 그대로 사용됩니다.</p>
@@ -852,12 +1135,20 @@ export const InputForm: React.FC<InputFormProps> = ({
               <p className={`mt-1 text-xs ${subheadline.length > 8 ? 'text-blue-600' : 'text-orange-600'}`}>
                 {subheadline.length > 8 
                   ? '✓ 입력하신 텍스트가 그대로 사용됩니다.' 
-                  : '💡 8글자 이하이면 AI가 내용을 확장하여 생성합니다.'}
+                  : bannerAutoFillEmptyFields
+                    ? '💡 8글자 이하이면 AI가 내용을 확장하여 생성합니다.'
+                    : '💡 8글자 이하 — 자동 채우기를 켠 경우에만 확장됩니다.'}
               </p>
             )}
             {subheadline.length === 0 && (
               <p className="mt-1 text-xs text-gray-400">
-                {isEventBannerForm ? '비워 두면 제목에 맞는 부제목을 AI가 작성합니다.' : '입력하지 않으면 헤드라인에 어울리는 서브헤드라인을 자동으로 생성합니다.'}
+                {isEventBannerForm
+                  ? bannerAutoFillEmptyFields
+                    ? '비워 두면 제목에 맞는 부제목을 AI가 작성합니다.'
+                    : '비워 두면 부제목 섹션은 출력하지 않습니다.'
+                  : bannerAutoFillEmptyFields
+                    ? '비우면 헤드라인에 어울리는 서브헤드라인을 자동 생성합니다.'
+                    : '비우면 서브헤드라인은 결과에 포함하지 않습니다.'}
               </p>
             )}
           </div>
@@ -870,14 +1161,28 @@ export const InputForm: React.FC<InputFormProps> = ({
               value={bodyCopy}
               onChange={(e) => setBodyCopy(e.target.value)}
               className={`${commonInputClass} h-24`}
-              placeholder={isEventBannerForm ? '본문 (비우면 AI가 제목에 맞게 작성)' : '배너/포스터 본문 내용을 입력하세요 (입력하지 않으면 자동 생성)'}
+              placeholder={
+                isEventBannerForm
+                  ? bannerAutoFillEmptyFields
+                    ? '본문 (비우면 AI가 작성)'
+                    : '본문 (비우면 결과에서 생략)'
+                  : bannerAutoFillEmptyFields
+                    ? '본문 (비우면 자동 생성)'
+                    : '본문 (비우면 결과에서 생략)'
+              }
             />
             {isEventBannerForm && bodyCopy.length > 0 && (
               <p className="mt-1 text-xs text-blue-600">입력한 본문은 수정 없이 그대로 사용됩니다.</p>
             )}
             {bodyCopy.length === 0 && (
               <p className="mt-1 text-xs text-gray-400">
-                {isEventBannerForm ? '비워 두면 제목에 맞는 본문을 AI가 작성합니다.' : '입력하지 않으면 헤드라인에 어울리는 바디카피를 자동으로 생성합니다.'}
+                {isEventBannerForm
+                  ? bannerAutoFillEmptyFields
+                    ? '비워 두면 제목에 맞는 본문을 AI가 작성합니다.'
+                    : '비워 두면 본문 섹션은 출력하지 않습니다.'
+                  : bannerAutoFillEmptyFields
+                    ? '비우면 바디카피를 자동 생성합니다.'
+                    : '비우면 바디카피는 결과에 포함하지 않습니다.'}
               </p>
             )}
           </div>
@@ -901,7 +1206,15 @@ export const InputForm: React.FC<InputFormProps> = ({
               value={cta}
               onChange={(e) => setCta(e.target.value)}
               className={commonInputClass}
-              placeholder={isEventBannerForm ? '예: 지금 신청하기 (비우면 AI가 작성)' : '예: 지금 예약하기, 더 알아보기 등 (입력하지 않으면 자동 생성)'}
+              placeholder={
+                isEventBannerForm
+                  ? bannerAutoFillEmptyFields
+                    ? '예: 지금 신청하기 (비우면 AI가 작성)'
+                    : '예: 지금 신청하기 (비우면 CTA 생략)'
+                  : bannerAutoFillEmptyFields
+                    ? '예: 지금 예약하기 (비우면 자동 생성)'
+                    : '예: 지금 예약하기 (비우면 CTA 생략)'
+              }
             />
             {isEventBannerForm && cta.length > 0 && (
               <p className="mt-1 text-xs text-blue-600">입력한 CTA는 수정 없이 그대로 사용됩니다.</p>
@@ -910,17 +1223,70 @@ export const InputForm: React.FC<InputFormProps> = ({
               <p className={`mt-1 text-xs ${cta.length > 8 ? 'text-blue-600' : 'text-orange-600'}`}>
                 {cta.length > 8 
                   ? '✓ 입력하신 텍스트가 그대로 사용됩니다.' 
-                  : '💡 8글자 이하이면 AI가 내용을 확장하여 생성합니다.'}
+                  : bannerAutoFillEmptyFields
+                    ? '💡 8글자 이하이면 AI가 내용을 확장하여 생성합니다.'
+                    : '💡 8글자 이하 — 자동 채우기를 켠 경우에만 확장됩니다.'}
               </p>
             )}
             {cta.length === 0 && (
               <p className="mt-1 text-xs text-gray-400">
-                {isEventBannerForm ? '비워 두면 제목에 맞는 CTA를 AI가 작성합니다.' : '입력하지 않으면 헤드라인에 어울리는 CTA를 자동으로 생성합니다.'}
+                {isEventBannerForm
+                  ? bannerAutoFillEmptyFields
+                    ? '비워 두면 제목에 맞는 CTA를 AI가 작성합니다.'
+                    : '비워 두면 CTA 섹션은 출력하지 않습니다.'
+                  : bannerAutoFillEmptyFields
+                    ? '비우면 CTA를 자동 생성합니다.'
+                    : '비우면 CTA는 결과에 포함하지 않습니다.'}
               </p>
             )}
           </div>
           </>
           )}
+
+          <div className="rounded-xl border-2 border-[#004B49]/20 bg-[#004B49]/10 p-4 mt-2">
+            <button
+              type="button"
+              onClick={() => setBannerAutoFillEmptyFields((v) => !v)}
+              className={`w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-all border-2 ${
+                bannerAutoFillEmptyFields
+                  ? 'border-[#004B49] bg-white text-[#004B49] shadow-sm'
+                  : 'border-transparent bg-white/70 text-gray-800 hover:border-[#004B49]/40'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <span
+                  className={`inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+                    bannerAutoFillEmptyFields ? 'bg-[#004B49]' : 'bg-gray-300'
+                  }`}
+                  aria-hidden
+                >
+                  <span
+                    className={`m-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      bannerAutoFillEmptyFields ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </span>
+                <span>비어 있는 문구 항목을 AI가 자동으로 채우기</span>
+              </span>
+            </button>
+            <p className="mt-2 text-xs text-gray-600 leading-relaxed">
+              {bannerAutoFillEmptyFields ? (
+                <>
+                  <strong className="text-[#004B49]">켜짐:</strong> 미입력·짧은 입력이 있어도 AI가 문구·섹션을 보완합니다.{' '}
+                  <span className="text-gray-500">
+                    (일반·기타 이벤트: 부제·본문·CTA / 인포그래픽·랭킹·어디로칠까·용어사전: 내용·설명 확장)
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong className="text-gray-800">꺼짐(기본):</strong> 일반·기타 이벤트는 입력한 문구만 반영하고 비운 칸은 결과에 넣지 않습니다.{' '}
+                  <span className="text-gray-500">
+                    인포그래픽·랭킹·골프장·용어사전은 확인되지 않은 수치·사실을 만들어내지 않고 보수적으로 작성합니다.
+                  </span>
+                </>
+              )}
+            </p>
+          </div>
         </>
       )}
       
