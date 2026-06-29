@@ -5,9 +5,16 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      /** true = 0.0.0.0 바인딩 → 같은 네트워크 PC에서 http://<이 Mac의 LAN IP>:포트 로 접속 가능 */
       server: {
         port: 3000,
-        host: '0.0.0.0',
+        host: true,
+        strictPort: false,
+      },
+      preview: {
+        port: 4173,
+        host: true,
+        strictPort: false,
       },
       plugins: [react()],
       define: {
@@ -18,7 +25,8 @@ export default defineConfig(({ mode }) => {
         'process.env.AWS_S3_REGION': JSON.stringify(env.AWS_S3_REGION),
         'process.env.AWS_S3_IMAGE_ROOT': JSON.stringify(env.AWS_S3_IMAGE_ROOT),
         'process.env.AWS_BASE_URL': JSON.stringify(env.AWS_BASE_URL),
-        'process.env.AWS_S3_IMAGE_WHERE2USE': JSON.stringify(env.AWS_S3_IMAGE_WHERE2USE)
+        'process.env.AWS_S3_IMAGE_WHERE2USE': JSON.stringify(env.AWS_S3_IMAGE_WHERE2USE),
+        'process.env.VITE_AI_PROFILE_N8N_WEBHOOK_URL': JSON.stringify(env.VITE_AI_PROFILE_N8N_WEBHOOK_URL ?? ''),
       },
       resolve: {
         alias: {

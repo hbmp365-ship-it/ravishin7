@@ -1,4 +1,4 @@
-import type { BannerDesignStyleId } from './types';
+import type { AiPromptAdditionalOption, BannerDesignStyleId } from './types';
 
 export const CATEGORIES = [
   { name: '한 수 배워요', description: '친근·실용, 스윙·레슨·골프팁' },
@@ -25,14 +25,178 @@ export const BLOG_CATEGORIES = [
   { name: '직접 입력', description: '원하는 카테고리를 직접 입력합니다.' },
 ];
 
-export const FORMATS = ['INSTAGRAM-CARD', 'NAVER-BLOG/BAND', 'YOUTUBE-SHORTFORM', 'ETC-BANNER'];
+export const FORMATS = ['INSTAGRAM-CARD', 'NAVER-BLOG/BAND', 'YOUTUBE-SHORTFORM', 'ETC-BANNER', 'AI-PROMPT'];
 
 export const FORMAT_LABELS: { [key: string]: string } = {
   'INSTAGRAM-CARD': '인스타 카드',
   'NAVER-BLOG/BAND': '네이버 블로그',
   'YOUTUBE-SHORTFORM': '유튜브 숏폼',
   'ETC-BANNER': '배너/포스터',
+  'AI-PROMPT': 'AI 프로필',
 };
+
+/** AI 프로필 구글 스프레드시트 (Teeshot 컨텐츠 생성기_AI프로필 프롬프트) */
+export const AI_PROFILE_SPREADSHEET_ID = '1K99GMxwcRO8z7Uobas8pEbPC90gveQo_6YDfmCcoTZc';
+export const AI_PROFILE_SPREADSHEET_URL = `https://docs.google.com/spreadsheets/d/${AI_PROFILE_SPREADSHEET_ID}/edit`;
+
+/** n8n 웹훅 — Google Sheets Append Row 워크플로와 연결 (`.env`의 VITE_AI_PROFILE_N8N_WEBHOOK_URL`) */
+export const AI_PROFILE_N8N_WEBHOOK_URL =
+  (typeof process !== 'undefined' && process.env.VITE_AI_PROFILE_N8N_WEBHOOK_URL?.trim()) ||
+  'https://teeshot.app.n8n.cloud/webhook/a1053b39-6daa-4553-88d3-e567e051ceda';
+
+export const AI_PROMPT_TYPES = ['AI 인물'] as const;
+
+export const AI_PROMPT_NATIONALITY_OPTIONS = [
+  { label: '한국인', value: 'Korean' },
+  { label: '일본인', value: 'Japanese' },
+  { label: '중국인', value: 'Chinese' },
+  { label: '동남아시아인', value: 'Southeast Asian' },
+  { label: '미국인', value: 'American' },
+  { label: '유럽인', value: 'European' },
+  { label: '국적 특정 없음', value: 'unspecified nationality' },
+];
+
+export const AI_PROMPT_GENDER_OPTIONS = [
+  { label: '여성', value: 'female subject' },
+  { label: '남성', value: 'male subject' },
+  { label: '성별 특정 없음', value: 'gender-neutral subject' },
+];
+
+export const AI_PROMPT_HAIR_OPTIONS = [
+  { label: '긴 생머리', value: 'long straight hair' },
+  { label: '웨이브 긴 머리', value: 'long wavy hair' },
+  { label: '단발머리', value: 'short bob haircut' },
+  { label: '로우 포니테일', value: 'low ponytail' },
+  { label: '하이 포니테일', value: 'high ponytail' },
+  { label: '번 헤어', value: 'neat bun hairstyle' },
+  { label: '캡/바이저를 쓴 헤어', value: 'hair tucked under a golf cap or visor' },
+  { label: '짧은 스포츠 헤어', value: 'short sporty haircut' },
+];
+
+export const AI_PROMPT_SKIN_OPTIONS = [
+  { label: '촉촉하지만 모공이 보이는 피부', value: 'dewy skin but with visible pores' },
+  { label: '자연스러운 치아가 보이는 밝은 미소', value: 'bright smile with natural teeth' },
+  { label: '햇빛 때문에 볼에 옅은 주근깨', value: 'slight freckles on the cheeks from the sun' },
+  { label: '현실적인 피부 질감의 부드러운 메이크업', value: 'soft makeup with realistic skin texture' },
+  { label: '자연 모공이 보이는 최소한의 메이크업', value: 'Minimal makeup with natural skin pores visible' },
+  { label: '햇빛 때문에 볼에 살짝 붉은 기', value: 'Slight redness on cheeks from the sun' },
+];
+
+export const AI_PROMPT_CLOTHING_OPTIONS = [
+  { label: '골프 폴로 셔츠 + 플리츠 스커트', value: 'golf polo shirt with a pleated skirt' },
+  { label: '골프 원피스', value: 'one-piece golf dress' },
+  { label: '긴팔 베이스레이어 + 베스트', value: 'long-sleeve base layer with a golf vest' },
+  { label: '골프 후디 + 스커트', value: 'golf hoodie with a skirt' },
+  { label: '카라 니트 + 골프 팬츠', value: 'collared knit top with golf pants' },
+  { label: '윈드브레이커 + 골프 스커트', value: 'light windbreaker with a golf skirt' },
+  { label: '골프 점프수트', value: 'golf jumpsuit' },
+  { label: '클래식 골프웨어 세트', value: 'classic coordinated golf outfit' },
+];
+
+export const AI_PROMPT_CLOTHING_COLOR_OPTIONS = [
+  { label: '화이트', value: 'white' },
+  { label: '블랙', value: 'black' },
+  { label: '네이비', value: 'navy' },
+  { label: '베이지', value: 'beige' },
+  { label: '파스텔 핑크', value: 'pastel pink' },
+  { label: '민트', value: 'mint green' },
+  { label: '스카이 블루', value: 'sky blue' },
+  { label: '라벤더', value: 'lavender' },
+  { label: '레드 포인트', value: 'red accent color' },
+  { label: '컬러 특정 없음', value: 'unspecified outfit color' },
+];
+
+export const AI_PROMPT_CAMERA_ANGLE_OPTIONS = [
+  { label: '자연스러운 스마트폰 셀피', value: 'Candid smartphone selfie' },
+  { label: '클로즈업 인물 사진', value: 'Close-up portrait' },
+  { label: '상반신 샷', value: 'Waist-up shot' },
+  { label: '그린 위 로우 앵글 샷', value: 'Low angle shot on the green' },
+  { label: '아이 레벨 미디엄 샷', value: 'Eye-level medium shot' },
+  { label: '풀바디 + 환경 포함', value: 'Full-body environmental portrait with visible surroundings' },
+  { label: '3/4 측면 각도', value: 'Three-quarter view angle' },
+  { label: '오버더숄더 시점', value: 'Over-the-shoulder framing' },
+  { label: '살짝 기울어진 더치 앵글', value: 'Slight Dutch angle for subtle dynamism' },
+  { label: '하이 앵글(위에서 내려다봄)', value: 'High angle looking down' },
+  { label: '로우 앵글(아래에서 올려다봄)', value: 'Low angle looking up' },
+  { label: '카트·클럽 등 전경 프레이밍', value: 'Foreground framing through golf cart edge or club shaft' },
+  { label: '반사(거울·창문) 활용 샷', value: 'Reflection-based composition in mirror or clubhouse window' },
+  { label: '넓은 환경 와이드 샷', value: 'Wide establishing shot with small subject in landscape' },
+  { label: '얕은 심도로 피사체 분리', value: 'Shallow depth of field isolating the subject' },
+  { label: '티박스에서 정면 대칭 구도', value: 'Symmetrical straight-on framing at the tee box' },
+  { label: '그린 위 탑다운(수직 위)', value: 'Top-down view on the putting green' },
+  { label: '측면 프로필 실루엣 강조', value: 'Side profile silhouette with rim light' },
+];
+
+export const AI_PROMPT_BACKGROUND_OPTIONS = [
+  { label: '아름다운 클럽하우스 정원', value: 'Beautiful clubhouse garden' },
+  { label: '선명한 초록빛 퍼팅 그린', value: 'vibrant green putting green' },
+  { label: '나무 아래 그늘진 휴식 공간', value: 'shady rest area under a tree' },
+  { label: '골프장 드라이빙 레인지', value: 'golf course driving range' },
+];
+
+export const AI_PROMPT_LIGHTING_OPTIONS = [
+  { label: '밝은 아침 햇살', value: 'Bright morning sunlight' },
+  { label: '큰 창가의 부드러운 실내 조명', value: 'soft indoor lighting by a large window' },
+  { label: '나무 사이로 비치는 얼룩진 햇빛', value: 'dappled sunlight through trees' },
+  { label: '강한 그림자가 없는 흐린 하늘', value: 'overcast sky with no harsh shadows' },
+];
+
+/** 값은 기종명 또는 렌즈 풀네임만 (셀피·스냅샷 등 촬영 방식 문구 금지) */
+export const AI_PROMPT_CAMERA_LENS_OPTIONS = [
+  { label: '아이폰 15 Pro', value: 'iPhone 15 Pro' },
+  { label: '아이폰 14', value: 'iPhone 14' },
+  { label: '아이폰 SE (3세대)', value: 'iPhone SE (3rd generation)' },
+  { label: '갤럭시 S24 울트라', value: 'Galaxy S24 Ultra' },
+  { label: '갤럭시 S23', value: 'Galaxy S23' },
+  { label: '갤럭시 Z 플립 5', value: 'Galaxy Z Flip 5' },
+  { label: '갤럭시 Z 폴드 5', value: 'Galaxy Z Fold 5' },
+  { label: '픽셀 8 Pro', value: 'Pixel 8 Pro' },
+  { label: '샤오미 14 울트라', value: 'Xiaomi 14 Ultra' },
+  { label: 'Canon RF 24-70mm f/2.8L', value: 'Canon RF 24-70mm f/2.8L IS USM' },
+  { label: 'Canon RF 50mm f/1.8', value: 'Canon RF 50mm f/1.8 STM' },
+  { label: 'Canon RF 85mm f/2', value: 'Canon RF 85mm f/2 MACRO IS STM' },
+  { label: 'Sony FE 24-70mm f/2.8 GM II', value: 'Sony FE 24-70mm f/2.8 GM II' },
+  { label: 'Sony FE 85mm f/1.4 GM', value: 'Sony FE 85mm f/1.4 GM' },
+  { label: 'Nikon Z 50mm f/1.8 S', value: 'Nikkor Z 50mm f/1.8 S' },
+  { label: 'Fujifilm XF 35mm f/1.4', value: 'Fujifilm XF 35mm f/1.4 R' },
+  { label: 'Ricoh GR IIIx', value: 'Ricoh GR IIIx' },
+  { label: 'Leica Q3', value: 'Leica Q3' },
+];
+
+export const AI_PROMPT_PHOTO_STYLE_OPTIONS = [
+  { label: '실제 생활 사진', value: 'Real life photo' },
+  { label: '자연스러운 인스타그램 게시물 스타일', value: 'candid instagram post style' },
+  { label: '무보정 느낌', value: 'unretouched' },
+  { label: '진짜 피부 디테일', value: 'authentic skin detail' },
+];
+
+export const AI_PROMPT_ADDITIONAL_OPTIONS: ReadonlyArray<{
+  id: AiPromptAdditionalOption;
+  label: string;
+  prompt: string;
+}> = [
+  {
+    id: 'non_symmetrical_face',
+    label: 'Non-symmetrical face: 미세한 안면 비대칭',
+    prompt: 'subtle non-symmetrical face, tiny natural facial asymmetry',
+  },
+  {
+    id: 'specific_device',
+    label: 'Specific Device: 렌즈 특유의 왜곡이나 질감 반영',
+    prompt: 'specific device rendering, lens-specific distortion and texture',
+  },
+  {
+    id: 'imperfections',
+    label: 'Imperfections: wrinkles(주름), stray hairs(잔머리), pores(모공)',
+    prompt: 'natural imperfections, fine wrinkles, stray hairs, visible pores',
+  },
+];
+
+export const AI_EFFECT_REMOVAL_POSITIVE_SUFFIX =
+  '... highly authentic, micro-skin details, non-perfect skin, real-world physics, accidental background details, natural lens distortion, cinematic but unpolished, 8k raw photo, accidental lighting artifacts, high dynamic range with realistic shadows.';
+
+export const AI_EFFECT_REMOVAL_NEGATIVE_PROMPT =
+  '... (airbrushed, plastic, smooth skin, symmetrical face, fake smile, fashion model pose, studio lighting:1.4), (CGI, 3D render, cartoon, digital art:1.2), (over-saturated, high contrast, heavy filters), (extra limbs, deformed fingers, floating objects), (perfectly white teeth, anime eyes).';
 
 export const BLOG_LENGTHS = [
   { value: 500, label: '500자' },
@@ -90,20 +254,66 @@ export const ALIGNMENT_OPTIONS = [
   { value: 'Right aligned', label: 'Right aligned' },
 ];
 
-/** 앱 전체 이미지 생성에 사용하는 Gemini 네이티브 이미지 모델 (Nano Banana 2) */
-export const GEMINI_NATIVE_IMAGE_MODEL_ID = 'gemini-3.1-flash-image-preview';
+/**
+ * 앱 전체 이미지 생성 Gemini 모델 (Nano Banana 2, GA).
+ * Imagen 4 중단(2026-08-17) 대응 — gemini-3.1-flash-image 사용.
+ * @see https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-image
+ */
+export const GEMINI_NATIVE_IMAGE_MODEL_ID = 'gemini-3.1-flash-image';
+
+/** AI 프로필 이미지 생성 — 최신 Gemini 네이티브 이미지 모델 */
+export const AI_PROFILE_IMAGE_MODEL_ID = GEMINI_NATIVE_IMAGE_MODEL_ID;
+export const AI_PROFILE_IMAGE_SIZE = '1K' as const;
+
+/** Gemini 3.1 Flash Image API 지원 종횡비 */
+export const GEMINI_IMAGE_ASPECT_RATIOS = new Set([
+  '1:1',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:3',
+  '4:5',
+  '5:4',
+  '9:16',
+  '16:9',
+  '21:9',
+  '1:4',
+  '4:1',
+  '1:8',
+  '8:1',
+]);
+
+/** 폼 비율 → Gemini imageConfig.aspectRatio */
+export const mapAspectRatioForGeminiImage = (aspectRatio?: string): string | undefined => {
+  const val = aspectRatio?.trim();
+  if (!val) return undefined;
+  if (GEMINI_IMAGE_ASPECT_RATIOS.has(val)) return val;
+  const fallback: Record<string, string> = {
+    '720×200': '16:9',
+    'A4 Vertical': '3:4',
+    'A4 Horizontal': '4:3',
+  };
+  return fallback[val];
+};
+
+/** 인스타 카드 포함 모든 포맷 동일 모델 사용 */
+export const INSTAGRAM_CARD_IMAGE_MODEL_ID = GEMINI_NATIVE_IMAGE_MODEL_ID;
 
 export const IMAGE_MODELS = [
-  { id: GEMINI_NATIVE_IMAGE_MODEL_ID, label: 'Nano Banana 2 (gemini-3.1-flash-image-preview)' },
+  { id: GEMINI_NATIVE_IMAGE_MODEL_ID, label: 'Nano Banana 2 (gemini-3.1-flash-image)' },
 ];
+
+/** 이미지 내 문자열은 반드시 프롬프트 본문과 동일(오타·동의어 치환 금지) */
+const GEMINI_BANNER_VERBATIM_ON_IMAGE_TEXT =
+  'TEXT ACCURACY (absolute, overrides style references): Every Korean, English, and numeric string in “Text content and visual instructions” must appear **on the poster exactly as written** — same characters, spacing, punctuation, and order. **Forbidden:** paraphrasing, “correcting” spelling, synonyms, swapping headline vs body, inventing new slogans, or copying any wording visible in style-reference images. On-image copy = **only** the provided list, rendered faithfully. If a reference image shows different text, **ignore that text** for lettering.';
 
 /** 배너/포스터 이미지 생성 API 호출 시 덧붙임 — 텍스트만 있는 단조로운 결과 방지 */
 export const GEMINI_BANNER_IMAGE_ENRICH_SUFFIX =
-  'Visual requirement: Deliver a finished banner/poster design with clear visual interest. Prefer illustrated / vector / flat graphic / icon / shape-based visuals over photorealistic stock photography (use photos only if truly necessary). Use decorative shapes, gradients, subtle patterns, and thematic graphics. Do not output plain typography on a flat solid color only. Typography: prioritize readability—strong contrast vs background, clear size hierarchy (headline > body), optional semi-transparent panel or subtle outline behind text if needed. No TeeShot or 티샷 branding or logo.';
+  `${GEMINI_BANNER_VERBATIM_ON_IMAGE_TEXT} Visual requirement: Deliver a finished banner/poster with clear visual interest. Prefer illustrated / vector / flat graphic / icon / shape-based visuals over photorealistic stock photography (use photos only if truly necessary). Use decorative shapes, gradients, subtle patterns, and thematic graphics. Do not output plain typography on a flat solid color only. Typography: prioritize readability—strong contrast vs background, clear size hierarchy (headline > body), optional semi-transparent panel or subtle outline behind text if needed. No TeeShot or 티샷 branding or logo.`;
 
 /** 참고 이미지가 있을 때: 벡터 우선 등 일반 접미사가 레퍼런스(실사/3D 등)와 충돌하지 않도록 완화 */
 const GEMINI_BANNER_IMAGE_ENRICH_SUFFIX_WITH_REFERENCE =
-  'Visual requirement: Finished banner/poster. **Stay in the reference’s medium** (vector / photo / 3D / mixed) and mood — never a generic unrelated stock look. **Graphics:** reuse the **same family** of motifs as the reference (icons, ribbons, blobs, lines, frames, stickers, gradients, patterns) at a **similar density and placement style**. **Typography layout (critical):** Mirror the reference’s **text alignment** (left-aligned blocks vs centered vs right vs intentional asymmetry). Mirror **type color & effects** (solid fills, outlines/strokes, shadows, glow, gradient-filled letters, reverse/knockout on panels) using colors **drawn from the reference palette**. Mirror **relative type scale** — how much bigger the main headline is vs subhead vs body vs CTA button text; keep the **same hierarchy proportions** even though the words are new. Korean must be legible. No plain solid-fill-only poster unless the reference is ultra-minimal. No TeeShot or 티샷 branding or logo.';
+  `${GEMINI_BANNER_VERBATIM_ON_IMAGE_TEXT} Visual requirement: Finished banner/poster. **Stay in the reference’s medium** (vector / photo / 3D / mixed) and mood — never a generic unrelated stock look. **Graphics:** reuse the **same family** of motifs as the reference (icons, ribbons, blobs, lines, frames, stickers, gradients, patterns) at a **similar density and placement style**. **Typography layout:** Mirror the reference’s **alignment** and **type styling** for the **words supplied in the text block** — not for any text printed on the reference image. Mirror **relative type scale** (headline vs sub vs body vs CTA) using the **exact strings from the brief**. Korean must be legible. No plain solid-fill-only poster unless the reference is ultra-minimal. No TeeShot or 티샷 branding or logo.`;
 
 /**
  * Nano Banana 배경 전용 파이프라인: 이미지에 글자·숫자·로고 없음. CSS 텍스트 레이어로 합성하기 위한 장면 생성.
@@ -125,7 +335,7 @@ const GEMINI_BANNER_REFERENCE_STYLE_DNA_FOR_OVERLAY =
 const GEMINI_BANNER_REFERENCE_STYLE_DNA_FINISHED =
   'ATTACHED REFERENCE = PRIMARY ART DIRECTION (non-negotiable): The user chose this image so the output **must look obviously inspired by it**. Match closely: **global colors** (dominant + accent hues, saturation, contrast), **warm/cool balance**, **flat vs photo vs 3D**, **line weight**, **corners**, **texture/grain**, **shadows**, **shape language** (organic/geometric), **margin/padding from edges**, and **overall graphic energy**. The viewer should feel “same brand / same designer toolkit” — **not** a random new style.\n\n' +
   'REFERENCE — TEXT & LAYOUT CHECKLIST (apply every item): (1) **Alignment:** If the reference uses left-aligned copy blocks, centered hero type, right-aligned stacks, or mixed columns — **replicate that alignment pattern** for your headline, subheadline, body, and CTA. (2) **Type colors & styling:** Match how the reference treats type — e.g. white on dark, colored headlines, outlined letters, heavy shadow, gradient text, or type on colored bars — using **colors from the reference**, not arbitrary new ones. (3) **Size hierarchy:** Copy the **relative scale** between main headline, secondary line, body, and CTA (which is largest, how much step-down between levels). (4) **Graphic vocabulary:** Use the **same kinds** of decorative elements the reference uses (badges, swooshes, icons, photo crops, dividers, blobs) at a **similar visual weight** and **similar zone** of the canvas (e.g. graphics hugging text vs full-bleed background shapes).\n\n' +
-  'CONTENT RULES: **Never** copy visible words, logos, or watermarks from the reference. **All** on-image wording must come **only** from “Text content and visual instructions” below — spelled exactly (Korean and Latin). If any UI preset in this prompt conflicts with the reference, **the reference wins.**';
+  'CONTENT RULES: **Never** copy visible words, logos, or watermarks from the reference image. **All** on-image lettering must come **only** from “Text content and visual instructions” below — **character-for-character** (Korean and Latin). For **visual style** (palette, shapes, photo vs vector), the reference wins; for **which words appear**, the text block **always wins** over anything shown in the reference.';
 
 /** 배너/포스터 → Nano Banana: UI 옵션 및 선두 System Prompt 키워드 */
 export const BANNER_DESIGN_STYLES: ReadonlyArray<{
@@ -188,7 +398,8 @@ export function buildBannerImageGenerationPrompt(
     userImagePromptHint?: string;
   }
 ): string {
-  const row = resolveBannerDesignStyle(options.designStyleId);
+  const row = options.designStyleId ? resolveBannerDesignStyle(options.designStyleId) : undefined;
+  const styleLead = row?.systemPrompt?.trim() ?? '';
   const userHint = options.userImagePromptHint?.trim();
   const appendUserHint = (body: string) =>
     userHint
@@ -197,7 +408,7 @@ export function buildBannerImageGenerationPrompt(
   const backgroundOnly = options.backgroundOnlyForTypographyOverlay === true;
   if (backgroundOnly) {
     const parts = [
-      row.systemPrompt,
+      styleLead,
       GEMINI_BANNER_BACKGROUND_SCENE_HINT,
       options.designReferenceImageAttached ? GEMINI_BANNER_REFERENCE_STYLE_DNA_FOR_OVERLAY : '',
       `Subject: Banner/Poster background plate${options.bannerContentType ? ` — ${options.bannerContentType}` : ''}.`,
@@ -211,16 +422,18 @@ export function buildBannerImageGenerationPrompt(
   const partsLegacy = options.designReferenceImageAttached
     ? [
         GEMINI_BANNER_REFERENCE_STYLE_DNA_FINISHED,
-        `Secondary UI style hint (only if reference is ambiguous — never override reference): ${row.systemPrompt}`,
+        ...(styleLead
+          ? [`Secondary UI style hint (only if reference is ambiguous — never override reference): ${styleLead}`]
+          : []),
         `Subject: Banner/Poster${options.bannerContentType ? ` — ${options.bannerContentType}` : ''}.`,
         options.bannerAspectRatio?.trim() ? `Layout / aspect ratio: ${options.bannerAspectRatio.trim()}.` : '',
         'Text content and visual instructions:',
         basePrompt.trim(),
         GEMINI_BANNER_IMAGE_ENRICH_SUFFIX_WITH_REFERENCE,
-        'Final check before rendering: Would a designer say this poster **shares the same alignment, type scale, type color treatment, palette, and graphic motifs** as the reference? If not, adjust. Copy only from the text block above.',
+        'Final check: (1) Is **every** string from the text block above painted **exactly** on the poster? (2) Does the **look** match the reference without stealing its wording? Fix if not.',
       ]
     : [
-        row.systemPrompt,
+        ...(styleLead ? [styleLead] : []),
         `Subject: Banner/Poster${options.bannerContentType ? ` — ${options.bannerContentType}` : ''}.`,
         options.bannerAspectRatio?.trim() ? `Layout / aspect ratio: ${options.bannerAspectRatio.trim()}.` : '',
         'Text content and visual instructions:',
@@ -1043,7 +1256,7 @@ export const SYSTEM_PROMPT = `
 - 예: "골프" → "골프와 함께하는 특별한 하루"
 
 **배너/포스터 완성도 향상 규칙:**
-- 사용자가 입력한 옵션 항목들(헤드라인, 서브헤드라인, CTA, 기본 비율, 스타일)의 내용이 부족하거나 빈약해 보이면, AI가 자동으로 보완하여 완성도 높은 배너/포스터 디자인을 만들어주세요.
+- 사용자가 입력한 항목들(헤드라인, 서브헤드라인, CTA, 기본 비율, **이미지 생성 참고 프롬프트**, 예시 참고 이미지가 있는 경우 그 스타일 힌트)이 부족해 보이면, AI가 시각 요소를 보완하여 완성도 높은 배너/포스터를 만들어주세요. **단, 사용자가 확정한 문구(8글자 초과 헤드라인·지정 서브·본문·CTA)는 절대 바꾸지 마세요.**
 - 디자인 컨셉, 색상 팔레트, 타이포그래피, 레이아웃 등은 사용자가 입력하지 않은 부분을 AI가 창의적으로 보완하세요.
 - 시각 요소는 **일러스트·그래픽 중심**을 기본으로 하고, **텍스트는 항상 읽기 쉽게**(대비·위계·여백) 배치하세요.
 - 단, 사용자가 명시적으로 입력한 텍스트(8글자 초과인 헤드라인, 서브헤드라인, CTA)는 절대 수정하지 마세요.
@@ -1083,31 +1296,22 @@ export const SYSTEM_PROMPT = `
 - 8글자 초과 여부: [초과/이하]
 - 처리 방법: [8글자 초과시 "그대로 사용 (수정 절대 금지)", 8글자 이하시 "확장 가능"]
 
+컨텐츠 유형: [일반 / 인포그래픽 / 기타 이벤트 배너 등 사용자 선택]
+
 기본 비율: [선택된 비율: 1:1 / 4:5 / 9:16 / 16:9 / 3:2 / 720×200 가로 띠 / A4 Vertical / A4 Horizontal]
 
-테마: [선택된 테마: 라이트모드 / 다크모드]
-- 라이트모드: 밝은 배경에 어두운 텍스트
-- 다크모드: 어두운 배경에 밝은 텍스트
+예시 디자인 참고 이미지: [사용자가 첨부한 경우 — 구도·색·무드만 반영; 참고 이미지 속 문구는 복사하지 않음 / 없음]
 
-시각적 스타일: [선택된 스타일: 이미지 기반 스타일 / 그래픽 기반 스타일 / 포스터 무드]
-
-정렬 옵션: [선택된 옵션: Center aligned / Left aligned / Right aligned]
+이미지 생성 참고 프롬프트(폼): [사용자가 입력한 지시를 요약·반영; 미입력이면 생략]
 
 📐 디자인 컨셉
 [배너/포스터의 전체적인 디자인 컨셉과 스타일을 설명]
-- 선택된 테마를 반영하여 배경과 텍스트 색상 설정:
-  * 라이트모드: 밝은 배경(흰색, 밝은 회색, 파스텔 톤 등)에 어두운 텍스트(검정, 진한 회색 등)
-  * 다크모드: 어두운 배경(검정, 짙은 회색, 짙은 네이비 등)에 밝은 텍스트(흰색, 밝은 회색 등)
-- 선택된 스타일을 반영하여 디자인 방향 설정:
-  * 이미지 기반 스타일: **가능하면 스타일화된 일러스트·그래픽 무드**를 우선하고, 실사 사진은 주제상 필요할 때만 보조적으로. 텍스트 가독성은 항상 확보
-  * 그래픽 기반 스타일: 도형, 패턴, 아이콘, 벡터 느낌의 그래픽 요소를 활용한 디자인
-  * 포스터 무드: 클래식·예술적 포스터 느낌, 일러스트·타이포 중심
+- **밝기·색·무드·그래픽 톤**은 사용자의 **이미지 생성 참고 프롬프트**와 **참고 이미지(있을 때)**를 우선하되, 문구는 항상 📝과 동일하게 유지합니다.
 - 색상 팔레트: [주요 색상 3-5개, 구체적인 색상명과 사용 위치 명시]
 - 타이포그래피: [폰트 스타일 및 크기 가이드, 헤드라인/서브헤드라인/CTA별 폰트 스타일]
-- 레이아웃: [구성 요소 배치 설명, 시각적 계층 구조, 창의적이고 효과적인 레이아웃 제안 — 헤드라인/서브/본문(박스 안)/CTA(버튼·뱃지) **역할별 영역**을 문장으로 구분]
-- 정렬: [선택된 정렬 옵션에 맞게 텍스트와 요소 배치 설명]
+- 레이아웃: [구성 요소 배치 설명, 시각적 계층 구조 — 헤드라인/서브/본문(박스 안)/CTA(버튼·뱃지) **역할별 영역**을 문장으로 구분]
 - 톤앤매너: [전체적인 느낌과 분위기]
-- **중요**: 사용자가 입력한 옵션만으로는 부족해 보이면, AI가 자동으로 디자인 요소를 보완하여 완성도 높은 배너/포스터 디자인을 만들어주세요. 색상, 레이아웃, 그래픽 요소 등을 창의적으로 추가하세요.
+- **중요**: 사용자 지시가 부족해 보이면 AI가 색·레이아웃·그래픽을 보완해도 됩니다. **확정 문구(📝)는 한 글자도 바꾸지 마세요.**
 
 📝 주요 텍스트 요소
 
@@ -1130,12 +1334,11 @@ export const SYSTEM_PROMPT = `
 - **한글로 작성** (영어 사용 금지)
 - **사람이 포함된 이미지인 경우 반드시 동양인(아시아인)을 기본으로 명시하세요**
 - **절대 금지: TEESHOT, TeeShot, 티샷 등의 로고, 브랜드명을 이미지에 포함하지 마세요.**
-- 비율 정보 포함
-- 선택된 테마(라이트모드/다크모드)를 반영
-- 선택된 스타일(이미지 기반/그래픽 기반/포스터 무드)을 반영
-- 선택된 정렬 옵션을 반영
+- 비율 정보 포함 (기본 비율과 일치)
+- **사용자 이미지 생성 참고 프롬프트**가 있으면 색·구도·정렬·그래픽 스타일에 **최우선** 반영
+- 예시 참고 이미지가 있으면 **시각 스타일만** 반영 (그 이미지에 적힌 글자는 이미지에 넣지 않음)
 - 색상, 스타일, 레이아웃, 텍스트 배치 등 구체적으로 설명
-- 사용자가 입력한 헤드라인, 서브헤드라인, 바디카피, CTA를 포함하여 완성도 높은 디자인 설명 (**각 텍스트 역할별로 시각적 구분**: 헤드라인 영역 / 서브 영역 / **본문은 카드·패널 박스 안** / CTA는 **버튼·캡슐 뱃지** 형태 등을 문장으로 구체화)
+- 사용자가 확정한 헤드라인, 서브헤드라인, 바디카피, CTA를 **📝과 동일한 문자열로** 인용하여 포함 (**각 텍스트 역할별로 시각적 구분**: 헤드라인 영역 / 서브 영역 / **본문은 카드·패널 박스 안** / CTA는 **버튼·캡슐 뱃지** 형태 등을 문장으로 구체화). **📝에 없는 문구를 🎨에 새로 만들어 넣지 마세요.**
 - **🚨 시각 요소 필수:** 단순 텍스트 나열이 아니라 **완성된 배너 이미지 한 장**을 묘사하세요. **일러스트·벡터·플랫 그래픽·아이콘·도형·그래디언트·패턴** 등을 우선하고, 실사 사진은 필요 시에만. 글자만 올린 단색 배경은 피하세요.
 - **🚨 한글 텍스트 처리·가독성 (중요):**
   - 한글 텍스트가 이미지에 정확히 표시되도록 하려면, 출력하고자 하는 한글 문구를 따옴표로 감싸고 명시하세요.
@@ -1147,8 +1350,8 @@ export const SYSTEM_PROMPT = `
 
 **프롬프트 작성 가이드:**
 - 자연스러운 한글 문장으로 시각 요소, 색상, 레이아웃을 구체적으로 기술
-- 테마(라이트모드/다크모드)에 따른 배경과 텍스트 색상 명시
-- 예시: "[테마] 테마의 [스타일] 스타일 배너 디자인, 비율 [비율], 정렬 [정렬 옵션], 배경 [배경색], 텍스트 [텍스트색], 주요 색상 [색상], 헤드라인 '[헤드라인]', 서브헤드라인 '[서브헤드라인]', 바디카피 '[바디카피]', CTA '[CTA]' 포함, [추가 디자인 요소 설명]"
+- 배경·텍스트 색 대비와 가독성을 명시 (사용자 참고 지시가 있으면 그에 맞춤)
+- 예시: "비율 [비율], [사용자 참고 지시 요약], 배경 [배경색], 텍스트 [텍스트색], 주요 색상 [색상], 헤드라인 '[📝과 동일]', 서브헤드라인 '[동일]', 바디카피 '[동일]', CTA '[동일]' 포함, [추가 그래픽·일러스트 설명]"
 
 💡 디자인 가이드라인
 [디자인 시 주의사항 및 권장사항]

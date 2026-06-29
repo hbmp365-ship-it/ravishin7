@@ -1,9 +1,31 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useId, useRef } from 'react';
 import { CopyIcon, CheckIcon, SpreadsheetIcon } from './icons';
-import { generateImage, type GenerateImageOptions } from '../services/geminiService';
+import {
+  generateImage,
+  parseImageDataUrl,
+  type GenerateImageOptions,
+} from '../services/geminiService';
 import { uploadImageToS3 } from '../services/s3Service';
 import type { UserInput } from '../types';
-import { buildBannerImageGenerationPrompt } from '../constants';
+import { buildBannerImageGenerationPrompt, INSTAGRAM_CARD_IMAGE_MODEL_ID, AI_PROFILE_SPREADSHEET_ID, AI_PROFILE_SPREADSHEET_URL, AI_PROFILE_N8N_WEBHOOK_URL, AI_PROFILE_IMAGE_MODEL_ID, AI_PROFILE_IMAGE_SIZE, mapAspectRatioForGeminiImage } from '../constants';
+import {
+  cleanGeneratedContent,
+  extractInstagramCardImageSlots,
+  findSlotByCardNumber,
+  getCardNumberFromLine,
+  getInstagramImageSlotId,
+  isCardHeaderLine,
+  isImagePromptLine,
+  isInstagramCardContent,
+  parseImagePromptFromLine,
+  parseInstagramCardSections,
+  type ImagePromptSlot,
+} from '../utils/instagramCardImagePrompts';
+import {
+  AI_PROFILE_IMAGE_SLOT_ID,
+  buildAiPromptSpreadsheetRow,
+  parseAiPromptForSpreadsheet,
+} from '../utils/aiPromptSpreadsheet';
  
 // 희엽님 계정 테스트 
 interface ContentDisplayProps {
@@ -22,15 +44,11 @@ interface ContentDisplayProps {
   bannerContentType?: UserInput['bannerContentType'];
   /** 배너 이미지 합성 프롬프트·생성 시 비율 반영 */
   bannerAspectRatio?: string;
-  /** Nano Banana 호출 시 선두 스타일 키워드 */
-  bannerDesignStyle?: UserInput['bannerDesignStyle'];
   /** 배너/포스터 텍스트 레이어 합성(일반·기타 이벤트) */
   bannerHeadline?: string;
   bannerSubheadline?: string;
   bannerBodyCopy?: string;
   bannerCta?: string;
-  bannerAlignment?: string;
-  bannerTheme?: string;
   /** 배너 배경 생성 시 예시 디자인 참고(멀티모달) */
   bannerDesignReferenceImage?: UserInput['bannerDesignReferenceImage'];
   /** 폼 하단 사용자 입력: 이미지 생성 시 API에 병합 */
@@ -46,12 +64,37 @@ interface ImageStatus {
   error: string | null;
 }
 
+/** 배너 등: 생성된 이미지 기준 수정 재생성 */
+type ImagePromptEditPayload = {
+  instruction: string;
+  /** 모델용 영역 힌트(프리셋 영문 + 사용자 보조) */
+  regionPromptEn: string;
+  sourceDataUrl: string;
+};
+
 interface ImagePromptProps {
   text: string;
-  onGenerate: (prompt: string) => Promise<void>;
+  onGenerate: () => Promise<void>;
   onSwitchToImageTab: (prompt: string) => void;
   status: ImageStatus;
+  /** 이미지가 있을 때만: 이미지 바로 위에 수정 입력란 표시 */
+  editControls?: {
+    onApplyEdit: (payload: ImagePromptEditPayload) => Promise<void>;
+  };
 }
+
+const BANNER_EDIT_REGION_PRESETS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: '', label: '전체' },
+  { value: 'the upper third / top area of the banner', label: '상단' },
+  { value: 'the vertical center / middle band', label: '중앙' },
+  { value: 'the lower third / bottom area', label: '하단' },
+  { value: 'the left half / left side', label: '왼쪽' },
+  { value: 'the right half / right side', label: '오른쪽' },
+  { value: 'the top-left quadrant', label: '좌상' },
+  { value: 'the top-right quadrant', label: '우상' },
+  { value: 'the bottom-left quadrant', label: '좌하' },
+  { value: 'the bottom-right quadrant', label: '우하' },
+];
 
 // HTTP 환경에서도 동작하는 복사 함수
 const copyToClipboard = async (text: string): Promise<boolean> => {
@@ -84,9 +127,16 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
   }
 };
 
-const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToImageTab, status }) => {
+const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToImageTab, status, editControls }) => {
+  const editFieldId = useId();
   const [copied, setCopied] = useState(false);
-  
+  const [editInstruction, setEditInstruction] = useState('');
+  const [editRegionPreset, setEditRegionPreset] = useState('');
+  const [editRegionExtra, setEditRegionExtra] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const regionPromptEn = [editRegionPreset.trim(), editRegionExtra.trim()].filter(Boolean).join('. ');
+
   const handleCopy = async () => {
     const success = await copyToClipboard(text);
     if (success) {
@@ -95,22 +145,98 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
     }
   };
   
+  const renderEditPanel = () => {
+    if (!editControls || !status.url) return null;
+    const canSubmit = editInstruction.trim().length > 0 && !editSubmitting && !status.isLoading;
+    return (
+      <div className="rounded-lg border border-amber-200/80 bg-amber-50/90 p-3 space-y-2">
+        <p className="text-xs font-semibold text-amber-900">이미지 수정</p>
+        <label className="block text-xs text-gray-600" htmlFor={editFieldId}>
+          수정 요청 <span className="text-red-500">*</span>
+        </label>
+        <textarea
+          id={editFieldId}
+          value={editInstruction}
+          onChange={(e) => setEditInstruction(e.target.value)}
+          className="w-full rounded-md border border-gray-300 px-2 py-2 text-sm text-gray-800 min-h-[72px] focus:ring-2 focus:ring-[#1FA77A]/40 focus:border-[#1FA77A]"
+          placeholder="예: 헤드라인 색을 흰색으로, 배경 그라데이션을 더 진하게"
+          rows={3}
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">수정 영역</label>
+            <select
+              value={editRegionPreset}
+              onChange={(e) => setEditRegionPreset(e.target.value)}
+              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm text-gray-800"
+            >
+              {BANNER_EDIT_REGION_PRESETS.map((o) => (
+                <option key={o.label} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">영역 추가 설명 (선택)</label>
+            <input
+              type="text"
+              value={editRegionExtra}
+              onChange={(e) => setEditRegionExtra(e.target.value)}
+              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm text-gray-800"
+              placeholder="예: CTA 버튼만, 로고 자리 제외"
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={!canSubmit}
+          onClick={async () => {
+            if (!status.url || !editInstruction.trim()) return;
+            setEditSubmitting(true);
+            try {
+              await editControls.onApplyEdit({
+                instruction: editInstruction.trim(),
+                regionPromptEn,
+                sourceDataUrl: status.url,
+              });
+            } finally {
+              setEditSubmitting(false);
+            }
+          }}
+          className="w-full sm:w-auto text-sm font-medium bg-[#FF9500] hover:bg-[#e88500] disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-2 px-4 rounded-md transition-colors"
+        >
+          {editSubmitting || status.isLoading ? '수정 적용 중…' : '수정 적용하여 재생성'}
+        </button>
+      </div>
+    );
+  };
+
   if (status.isLoading) {
     return (
-      <div className="bg-gray-100 p-3 rounded-lg mt-2 flex items-center justify-center aspect-square">
-        <svg className="animate-spin h-8 w-8 text-[#1FA77A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
+      <div className="space-y-3 mt-2">
+        {renderEditPanel()}
+        <div className="bg-gray-100 p-3 rounded-lg flex items-center justify-center aspect-square relative">
+          {status.url ? (
+            <img src={status.url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" aria-hidden />
+          ) : null}
+          <svg className="animate-spin h-8 w-8 text-[#1FA77A] relative z-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
       </div>
     );
   }
 
   if (status.error) {
      return (
-        <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg mt-2 text-center text-sm flex flex-col items-center justify-center aspect-square">
+        <div className="space-y-3 mt-2">
+          {renderEditPanel()}
+          <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-center text-sm flex flex-col items-center justify-center aspect-square">
             <p className="font-semibold">이미지 생성 실패</p>
-            <button onClick={() => onGenerate(text)} className="text-sm bg-red-100 hover:bg-red-200 px-3 py-1 rounded-md mt-2 transition-colors">재시도</button>
+            <button type="button" onClick={() => onGenerate()} className="text-sm bg-red-100 hover:bg-red-200 px-3 py-1 rounded-md mt-2 transition-colors">재시도</button>
+          </div>
         </div>
      );
   }
@@ -118,13 +244,16 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
   if (status.url) {
     const filename = text.substring(0, 40).replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.jpeg';
     return (
-        <div className="bg-gray-100 rounded-lg mt-2 group relative aspect-square overflow-hidden border border-gray-200">
+        <div className="space-y-3 mt-2">
+          {renderEditPanel()}
+          <div className="bg-gray-100 rounded-lg group relative aspect-square overflow-hidden border border-gray-200">
             <img src={status.url} alt={text} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-center">
                  <p className="text-white text-xs mb-4 leading-snug max-h-24 overflow-auto">{text}</p>
                  <a href={status.url} download={filename} className="text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2 px-4 rounded-md transition-colors w-full text-center">다운로드</a>
-                 <button onClick={() => onSwitchToImageTab(text)} className="mt-2 text-xs text-gray-200 hover:underline">프롬프트 수정</button>
+                 <button type="button" onClick={() => onSwitchToImageTab(text)} className="mt-2 text-xs text-gray-200 hover:underline">프롬프트 수정</button>
             </div>
+        </div>
         </div>
     );
   }
@@ -133,9 +262,10 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
     <div className="bg-gray-100 p-3 rounded-lg mt-2 flex items-center justify-between group">
       <p className="text-gray-700 text-sm font-mono flex-grow pr-2">📸 {text}</p>
       <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button 
-          onClick={() => onGenerate(text)} 
-          title="이미지 생성하기" 
+        <button
+          type="button"
+          onClick={() => onGenerate()}
+          title="이미지 생성하기"
           className="text-sm bg-gray-200 hover:bg-[#1FA77A] text-gray-800 hover:text-white font-medium py-1 px-3 rounded-md transition-colors"
         >
           생성
@@ -163,13 +293,10 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   cutTexts,
   bannerContentType,
   bannerAspectRatio,
-  bannerDesignStyle,
   bannerHeadline,
   bannerSubheadline,
   bannerBodyCopy,
   bannerCta,
-  bannerAlignment,
-  bannerTheme,
   bannerDesignReferenceImage,
   bannerAiImagePromptHint,
   onRequestInstaCardWithReferenceText,
@@ -180,26 +307,39 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [isBannerImageGenerating, setIsBannerImageGenerating] = useState(false);
   const [bannerPromptCopied, setBannerPromptCopied] = useState(false);
+  const [copiedAiPromptSection, setCopiedAiPromptSection] = useState<string | null>(null);
+  const [aiProfileSheetStatus, setAiProfileSheetStatus] = useState<
+    'idle' | 'recording' | 'success' | 'failed'
+  >('idle');
+  const prevContentRef = useRef<string | undefined>(undefined);
+  const imageStatusesRef = useRef<Record<string, ImageStatus>>({});
 
-  const imagePrompts = useMemo(() => {
+  useEffect(() => {
+    imageStatusesRef.current = imageStatuses;
+  }, [imageStatuses]);
+
+  /** 새 콘텐츠 생성 시 slotId(cover, insta-img-N)가 겹치면 이전 카드 이미지가 남지 않도록 초기화 */
+  useEffect(() => {
+    if (prevContentRef.current === content) return;
+    prevContentRef.current = content;
+    setImageStatuses({});
+    setIsBatchGenerating(false);
+    setIsBannerImageGenerating(false);
+  }, [content]);
+
+  const imagePromptSlots = useMemo((): ImagePromptSlot[] => {
     if (!content) return [];
-    
-    // 유튜브 숏폼 포맷인 경우 컷 수만큼 이미지 프롬프트 추출
+
     if (format === 'YOUTUBE-SHORTFORM' && cutCount) {
       const lines = content.split('\n');
       const prompts: string[] = [];
       let currentCutIndex = -1;
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        
-        // 컷/씬 시작 감지
+
+      for (const line of lines) {
         const cutMatch = line.match(/\[(?:Cut|Scene|컷)\s*(\d+)\]/i);
         if (cutMatch) {
           currentCutIndex = parseInt(cutMatch[1], 10);
         }
-        
-        // 이미지 프롬프트 추출
         if (line.startsWith('📸 이미지 프롬프트:') || line.startsWith('🎬 이미지 프롬프트:')) {
           const prompt = line.replace(/📸 이미지 프롬프트:|🎬 이미지 프롬프트:/, '').trim();
           if (prompt && currentCutIndex > 0 && currentCutIndex <= cutCount) {
@@ -207,56 +347,39 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           }
         }
       }
-      
-      // 컷 수만큼 프롬프트가 없으면 컷 수만큼 빈 배열 반환 (나중에 자동 생성)
-      if (prompts.length < cutCount) {
-        return Array(cutCount).fill('').map((_, index) => prompts[index] || '');
-      }
-      
-      return prompts.slice(0, cutCount);
+
+      const filled =
+        prompts.length < cutCount
+          ? Array(cutCount)
+              .fill('')
+              .map((_, index) => prompts[index] || '')
+          : prompts.slice(0, cutCount);
+
+      return filled.map((prompt, index) => ({
+        slotId: `youtube-cut-${index + 1}`,
+        prompt,
+      }));
     }
-    
-    // 인스타그램 카드 포맷인지 확인 ([Card 숫자] 패턴이 있는지)
-    const isInstagramCard = /\[Card\s*\d+\]/.test(content);
-    
-    // 인스타그램 카드 포맷의 경우 각 카드마다 프롬프트를 모두 추출 (표지 포함)
-    if (isInstagramCard) {
-      const lines = content.split('\n');
-      const prompts: string[] = [];
-      let currentCardIndex = -1;
-      let hasSeenFirstCard = false;
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        
-        // 카드 시작 감지
-        const cardMatch = line.match(/\[Card\s*(\d+)\]/);
-        if (cardMatch) {
-          currentCardIndex = parseInt(cardMatch[1], 10);
-          hasSeenFirstCard = true;
-        }
-        
-        // 이미지 프롬프트 추출
-        if (line.startsWith('📸 이미지 프롬프트:')) {
-          const prompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
-          if (prompt) {
-            // 표지 이미지 프롬프트 (첫 번째 카드 이전) 또는 카드 내부 프롬프트 모두 포함
-            if (!hasSeenFirstCard || currentCardIndex > 0) {
-              prompts.push(prompt);
-            }
-          }
-        }
-      }
-      
-      return prompts;
+
+    if (isInstagramCardContent(content)) {
+      return extractInstagramCardImageSlots(cleanGeneratedContent(content));
     }
-    
-    // 다른 포맷의 경우 기존 로직 유지 (중복 제거)
-    const uniquePrompts = new Set(content.split('\n')
-      .filter(line => line.startsWith('📸 이미지 프롬프트:'))
-      .map(line => line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim()));
-    return Array.from(uniquePrompts);
+
+    const seen = new Set<string>();
+    const slots: ImagePromptSlot[] = [];
+    for (const line of content.split('\n')) {
+      const prompt = parseImagePromptFromLine(line);
+      if (!prompt || seen.has(prompt)) continue;
+      seen.add(prompt);
+      slots.push({ slotId: prompt, prompt });
+    }
+    return slots;
   }, [content, format, cutCount]);
+
+  const imagePrompts = useMemo(
+    () => imagePromptSlots.map((slot) => slot.prompt),
+    [imagePromptSlots]
+  );
 
   const generatedImageUrls = useMemo(() => {
     // FIX: Explicitly cast the result of Object.values to fix type inference issues where `s` is treated as `unknown`.
@@ -273,7 +396,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   
   const isInstagramCardFormat = useMemo(() => {
     if (!content) return false;
-    return /\[Card\s*\d+\]/.test(content);
+    return isInstagramCardContent(content);
   }, [content]);
 
   const isNaverBlogFormat = useMemo(() => {
@@ -441,16 +564,18 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     [bannerImagePrompt, eventBannerImagePrompt, contentDerivedBannerImagePrompt]
   );
 
-  /** 본문 하단 ImagePrompt 패널: 🎨 섹션이 없을 때만 (중복 방지) */
-  const extraBannerImagePanelPrompt = useMemo(() => {
-    if (format !== 'ETC-BANNER') return '';
-    if (bannerImagePrompt) return '';
-    return eventBannerImagePrompt || contentDerivedBannerImagePrompt;
-  }, [format, bannerImagePrompt, eventBannerImagePrompt, contentDerivedBannerImagePrompt]);
-
   const showSpreadsheetButton = useMemo(() => {
-    return isInstagramCardFormat || isNaverBlogFormat;
-  }, [isInstagramCardFormat, isNaverBlogFormat]);
+    return isInstagramCardFormat || isNaverBlogFormat || format === 'AI-PROMPT';
+  }, [isInstagramCardFormat, isNaverBlogFormat, format]);
+
+  const isAiProfileFormat = format === 'AI-PROMPT';
+
+  const aiProfileEnglishPrompt = useMemo(() => {
+    if (!isAiProfileFormat || !content) return '';
+    return parseAiPromptForSpreadsheet(cleanGeneratedContent(content)).englishPrompt;
+  }, [isAiProfileFormat, content]);
+
+  const profileImageStatus = imageStatuses[AI_PROFILE_IMAGE_SLOT_ID];
 
   const handleCopyAll = async () => {
     let textToCopy = content;
@@ -507,6 +632,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     }
   };
 
+  const handleCopyAiPromptSection = useCallback(async (sectionKey: string, text: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopiedAiPromptSection(sectionKey);
+      setTimeout(() => setCopiedAiPromptSection(null), 2000);
+    }
+  }, []);
+
   // 인포그래픽 컨텐츠인지 확인
   const isInfographicContent = useMemo(() => {
     if (!content || format !== 'ETC-BANNER') return false;
@@ -558,47 +691,111 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     }
   };
   
-  const handleGenerateSingleImage = useCallback(async (prompt: string) => {
-    setImageStatuses(prev => ({ ...prev, [prompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
-    try {
-        const base64Image = await generateImage(prompt);
-        
-        // S3에 업로드하여 전체 URL 가져오기
-        let s3Url: string | null = null;
+  const instaCardImageOptions =
+    format === 'INSTAGRAM-CARD' ? { modelId: INSTAGRAM_CARD_IMAGE_MODEL_ID } : undefined;
+
+  const aiProfileImageOptions = useMemo(
+    (): GenerateImageOptions => ({
+      modelId: AI_PROFILE_IMAGE_MODEL_ID,
+      aspectRatio: mapAspectRatioForGeminiImage(bannerAspectRatio),
+      imageSize: AI_PROFILE_IMAGE_SIZE,
+    }),
+    [bannerAspectRatio]
+  );
+
+  const generateImageForSlot = useCallback(
+    async (slotId: string, prompt: string, overrideOptions?: GenerateImageOptions) => {
+      if (!prompt.trim()) return;
+
+      setImageStatuses((prev) => ({
+        ...prev,
+        [slotId]: { url: null, s3Url: null, isLoading: true, error: null },
+      }));
+
+      const imageOptions = overrideOptions ?? instaCardImageOptions;
+      const maxAttempts = 3;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
+          const base64Image = await generateImage(prompt, undefined, imageOptions);
+          let s3Url: string | null = null;
+          try {
             s3Url = await uploadImageToS3(base64Image, prompt);
-        } catch (uploadErr) {
+          } catch (uploadErr) {
             console.error('S3 업로드 실패:', uploadErr);
-            // S3 업로드 실패해도 base64 이미지는 표시
+          }
+
+          const nextStatus: ImageStatus = {
+            url: `data:image/jpeg;base64,${base64Image}`,
+            s3Url,
+            isLoading: false,
+            error: null,
+          };
+          setImageStatuses((prev) => {
+            const next = { ...prev, [slotId]: nextStatus };
+            imageStatusesRef.current = next;
+            return next;
+          });
+          return;
+        } catch (e) {
+          console.error(`Image generation failed (attempt ${attempt + 1}/${maxAttempts}):`, e);
+          if (attempt < maxAttempts - 1) {
+            await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          }
         }
-        
-        setImageStatuses(prev => ({
-            ...prev,
-            [prompt]: {
-                url: `data:image/jpeg;base64,${base64Image}`,
-                s3Url: s3Url,
-                isLoading: false,
-                error: null
-            }
-        }));
-    } catch (e) {
-        console.error("Single image generation failed:", e);
-        setImageStatuses(prev => ({
-            ...prev,
-            [prompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' }
-        }));
-    }
-  }, []);
+      }
+
+      setImageStatuses((prev) => ({
+        ...prev,
+        [slotId]: {
+          url: null,
+          s3Url: null,
+          isLoading: false,
+          error:
+            slotId === AI_PROFILE_IMAGE_SLOT_ID
+              ? '프로필 이미지 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.'
+              : 'Image generation failed.',
+        },
+      }));
+    },
+    [instaCardImageOptions]
+  );
+
+  const handleGenerateSingleImage = useCallback(
+    async (prompt: string, statusKey?: string) => {
+      const slotId = statusKey ?? prompt;
+      await generateImageForSlot(slotId, prompt);
+    },
+    [generateImageForSlot]
+  );
+
+  const handleGenerateProfileImage = useCallback(async () => {
+    if (!aiProfileEnglishPrompt.trim()) return;
+    await generateImageForSlot(
+      AI_PROFILE_IMAGE_SLOT_ID,
+      aiProfileEnglishPrompt.trim(),
+      aiProfileImageOptions
+    );
+  }, [aiProfileEnglishPrompt, aiProfileImageOptions, generateImageForSlot]);
+
+  const handleDownloadProfileImage = useCallback(() => {
+    const url = profileImageStatus?.url;
+    if (!url) return;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'ai-profile.jpeg';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [profileImageStatus?.url]);
 
   const nanoBananaBannerOptions = useMemo(
     () => ({
-      designStyleId: bannerDesignStyle,
       bannerContentType,
       bannerAspectRatio,
       /** 완성 배너(이미지 내 타이포 포함). 참고 이미지는 스타일만 반영 */
       backgroundOnlyForTypographyOverlay: false,
     }),
-    [bannerDesignStyle, bannerContentType, bannerAspectRatio]
+    [bannerContentType, bannerAspectRatio]
   );
 
   const bannerImagePromptBuildOptions = useMemo(
@@ -623,7 +820,18 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
 
   /** 본문 기반 배너 패널(랭킹·용어 등): 스타일·비율·유형 반영한 Nano Banana 프롬프트 */
   const handleGenerateDerivedBannerImage = useCallback(async (prompt: string) => {
-    setImageStatuses((prev) => ({ ...prev, [prompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
+    setImageStatuses((prev) => {
+      const cur = prev[prompt];
+      return {
+        ...prev,
+        [prompt]: {
+          url: cur?.url ?? null,
+          s3Url: cur?.s3Url ?? null,
+          isLoading: true,
+          error: null,
+        },
+      };
+    });
     try {
       const base64Image = await generateImage(
         buildBannerImageGenerationPrompt(prompt, bannerImagePromptBuildOptions),
@@ -649,129 +857,130 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       console.error('Derived banner image generation failed:', e);
       setImageStatuses((prev) => ({
         ...prev,
-        [prompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' },
+        [prompt]: {
+          url: prev[prompt]?.url ?? null,
+          s3Url: prev[prompt]?.s3Url ?? null,
+          isLoading: false,
+          error: 'Image generation failed.',
+        },
       }));
     }
   }, [bannerImagePromptBuildOptions, bannerImageGenOptions]);
 
-  const handleGenerateBannerImage = useCallback(async () => {
-    if (!effectiveBannerImagePrompt) return;
-    
-    setIsBannerImageGenerating(true);
-    const promptKey = effectiveBannerImagePrompt;
-    try {
-      // 배너/포스터 포맷: Gemini 네이티브 이미지 모델
-      setImageStatuses(prev => ({ ...prev, [promptKey]: { url: null, s3Url: null, isLoading: true, error: null } }));
+  /** 현재 썸네일 + 수정 지시로 재생성 (멀티모달 edit 소스) */
+  const handleBannerImageApplyEdit = useCallback(
+    async ({ instruction, regionPromptEn, sourceDataUrl }: ImagePromptEditPayload) => {
+      const key = effectiveBannerImagePrompt;
+      const parsed = parseImageDataUrl(sourceDataUrl);
+      if (!parsed || !instruction.trim() || !key) return;
+
+      const regionBlock = regionPromptEn.trim()
+        ? `\nPrimary edit region (focus changes here; keep other areas stable unless necessary): ${regionPromptEn.trim()}`
+        : '';
+
+      const editBlock = `--- USER REVISION (apply to the attached current image) ---${regionBlock}\n\n${instruction.trim()}`;
+      const basePrompt = buildBannerImageGenerationPrompt(key, bannerImagePromptBuildOptions);
+      const fullPrompt = `${basePrompt}\n\n${editBlock}`;
+
+      setImageStatuses((prev) => {
+        const cur = prev[key];
+        return {
+          ...prev,
+          [key]: {
+            url: cur?.url ?? null,
+            s3Url: cur?.s3Url ?? null,
+            isLoading: true,
+            error: null,
+          },
+        };
+      });
+
       try {
-        const base64Image = await generateImage(
-          buildBannerImageGenerationPrompt(promptKey, bannerImagePromptBuildOptions),
-          undefined,
-          bannerImageGenOptions
-        );
-        
-        // S3에 업로드하여 전체 URL 가져오기
+        const base64Image = await generateImage(fullPrompt, undefined, {
+          ...bannerImageGenOptions,
+          editSourceImage: parsed,
+        });
         let s3Url: string | null = null;
         try {
-          s3Url = await uploadImageToS3(base64Image, promptKey);
+          s3Url = await uploadImageToS3(base64Image, key);
         } catch (uploadErr) {
           console.error('S3 업로드 실패:', uploadErr);
         }
-        
-        setImageStatuses(prev => ({
+        setImageStatuses((prev) => ({
           ...prev,
-          [promptKey]: {
+          [key]: {
             url: `data:image/jpeg;base64,${base64Image}`,
-            s3Url: s3Url,
+            s3Url,
             isLoading: false,
-            error: null
-          }
+            error: null,
+          },
         }));
       } catch (e) {
-        console.error("배너 이미지 생성 실패:", e);
-        setImageStatuses(prev => ({
+        console.error('Banner image edit failed:', e);
+        setImageStatuses((prev) => ({
           ...prev,
-          [promptKey]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' }
+          [key]: {
+            url: prev[key]?.url ?? null,
+            s3Url: prev[key]?.s3Url ?? null,
+            isLoading: false,
+            error: 'Image generation failed.',
+          },
         }));
       }
-    } catch (error) {
-      console.error('배너 이미지 생성 실패:', error);
+    },
+    [effectiveBannerImagePrompt, bannerImagePromptBuildOptions, bannerImageGenOptions]
+  );
+
+  const handleGenerateBannerImage = useCallback(async () => {
+    if (!effectiveBannerImagePrompt) return;
+    setIsBannerImageGenerating(true);
+    try {
+      await handleGenerateDerivedBannerImage(effectiveBannerImagePrompt);
     } finally {
       setIsBannerImageGenerating(false);
     }
-  }, [effectiveBannerImagePrompt, bannerImagePromptBuildOptions, bannerImageGenOptions]);
+  }, [effectiveBannerImagePrompt, handleGenerateDerivedBannerImage]);
 
   const handleGenerateAllImages = useCallback(async () => {
-    if (!imagePrompts.length) return;
+    if (!imagePromptSlots.length) return;
 
     setIsBatchGenerating(true);
-    
-    // 초기 상태 설정: 아직 생성되지 않은 이미지만 로딩 상태로 설정
-    setImageStatuses(prev => {
-        const newStatuses = {...prev};
-        imagePrompts.forEach(p => {
-            if (!newStatuses[p]?.url) { // Don't re-generate existing images
-                 newStatuses[p] = { isLoading: true, url: null, s3Url: null, error: null };
-            }
-        });
-        return newStatuses;
+
+    const pendingSlots = imagePromptSlots.filter(
+      (slot) => slot.prompt.trim() && !imageStatuses[slot.slotId]?.url
+    );
+
+    setImageStatuses((prev) => {
+      const next = { ...prev };
+      for (const slot of pendingSlots) {
+        next[slot.slotId] = { isLoading: true, url: null, s3Url: null, error: null };
+      }
+      return next;
     });
 
-    // 순차적으로 하나씩 처리 (병렬 처리 대신)
-    for (const prompt of imagePrompts) {
-        // 빈 프롬프트는 건너뛰기
-        if (!prompt || !prompt.trim()) {
-            continue;
-        }
-        
-        // 이미 생성된 이미지는 건너뛰기
-        if (imageStatuses[prompt]?.url) {
-            continue;
-        }
-
-        try {
-            // 각 이미지를 순차적으로 생성 (Gemini 네이티브 이미지)
-            const base64Image = await generateImage(prompt);
-            
-            // S3에 업로드하여 전체 URL 가져오기
-            let s3Url: string | null = null;
-            try {
-                s3Url = await uploadImageToS3(base64Image, prompt);
-            } catch (uploadErr) {
-                console.error('S3 업로드 실패:', uploadErr);
-                // S3 업로드 실패해도 base64 이미지는 표시
-            }
-            
-            setImageStatuses(prev => ({
-                ...prev,
-                [prompt]: {
-                    url: `data:image/jpeg;base64,${base64Image}`,
-                    s3Url: s3Url,
-                    isLoading: false,
-                    error: null
-                }
-            }));
-        } catch (e) {
-            console.error(`Image generation failed for prompt: ${prompt}`, e);
-            setImageStatuses(prev => ({
-                ...prev,
-                [prompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' }
-            }));
-        }
+    for (let i = 0; i < pendingSlots.length; i++) {
+      const { slotId, prompt } = pendingSlots[i];
+      await generateImageForSlot(slotId, prompt);
+      if (i < pendingSlots.length - 1) {
+        await new Promise((r) => setTimeout(r, 600));
+      }
     }
 
     setIsBatchGenerating(false);
-  }, [imagePrompts, imageStatuses]);
+  }, [imagePromptSlots, imageStatuses, generateImageForSlot]);
   
   // 유튜브 숏폼 포맷일 때 컨텐츠 생성 후 자동으로 이미지 생성
   useEffect(() => {
     if (format === 'YOUTUBE-SHORTFORM' && content && !isLoading && cutCount && cutCount > 0) {
       // 컨텐츠에서 이미지 프롬프트가 추출되었고, 아직 생성되지 않은 이미지가 있으면 자동 생성
-      const hasUnGeneratedImages = imagePrompts.some(p => p && p.trim() && !imageStatuses[p]?.url);
+      const hasUnGeneratedImages = imagePromptSlots.some(
+        (slot) => slot.prompt.trim() && !imageStatuses[slot.slotId]?.url
+      );
       if (hasUnGeneratedImages && !isBatchGenerating) {
         handleGenerateAllImages();
       }
     }
-  }, [content, format, cutCount, imagePrompts, imageStatuses, isLoading, isBatchGenerating, handleGenerateAllImages]);
+  }, [content, format, cutCount, imagePromptSlots, imageStatuses, isLoading, isBatchGenerating, handleGenerateAllImages]);
   
   const handleDownloadAll = useCallback(async () => {
     // 유튜브 숏폼 포맷인 경우 webhook으로 전송 (이미지 생성 없이 내용만 전송)
@@ -1185,9 +1394,84 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     // JSON 블록과 불필요한 메타데이터 제거
     let cleanedContent = content;
     cleanedContent = cleanedContent.replace(/```json[\s\S]*?```/g, '');
-    cleanedContent = cleanedContent.replace(/^[A-D]\)\s+(INSTAGRAM-CARD|NAVER-BLOG\/BAND|YOUTUBE-SHORTFORM|ETC-BANNER):\s*/gm, '');
+    cleanedContent = cleanedContent.replace(/^[A-D]\)\s+(INSTAGRAM-CARD|NAVER-BLOG\/BAND|YOUTUBE-SHORTFORM|ETC-BANNER|AI-PROMPT):\s*/gm, '');
     cleanedContent = cleanedContent.replace(/^\{[\s\S]*?"생성요청"[\s\S]*?\}/gm, '');
     cleanedContent = cleanedContent.trim();
+
+    const escapeTsvField = (field: string = '') => {
+      const needsQuoting = field.includes('\t') || field.includes('\n') || field.includes('"');
+      if (needsQuoting) {
+        return `"${field.replace(/"/g, '""')}"`;
+      }
+      return field;
+    };
+
+    const generateId = (): string => {
+      const now = new Date();
+      const year = now.getFullYear().toString();
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      const day = now.getDate().toString().padStart(2, '0');
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      return `${year}${month}${day}${hours}${minutes}`;
+    };
+
+    if (format === 'AI-PROMPT') {
+      const parsed = parseAiPromptForSpreadsheet(cleanedContent);
+      const profileStatus = imageStatusesRef.current[AI_PROFILE_IMAGE_SLOT_ID];
+      const generatedImageUrl = profileStatus?.s3Url ?? '';
+      const dataRow = buildAiPromptSpreadsheetRow(parsed, generatedImageUrl);
+      const tsvContent = dataRow.map(escapeTsvField).join('\t');
+
+      setAiProfileSheetStatus('recording');
+
+      const payload = {
+        format: 'AI-PROMPT',
+        spreadsheetId: AI_PROFILE_SPREADSHEET_ID,
+        spreadsheetUrl: AI_PROFILE_SPREADSHEET_URL,
+        englishPrompt: dataRow[0],
+        koreanPrompt: dataRow[1],
+        detailOptions: dataRow[2],
+        aiEffect: dataRow[3],
+        aspectRatio: dataRow[4],
+        generatedImageUrl: dataRow[5],
+        id: generateId(),
+        timestamp: new Date().toISOString(),
+      };
+
+      let webhookOk = false;
+      try {
+        const response = await fetch(AI_PROFILE_N8N_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        webhookOk = response.ok;
+      } catch (error) {
+        console.error('AI 프로필 웹훅 전송 실패:', error);
+      }
+
+      if (webhookOk) {
+        setAiProfileSheetStatus('success');
+        setIsCsvCopied(true);
+        setTimeout(() => {
+          setIsCsvCopied(false);
+          setAiProfileSheetStatus('idle');
+        }, 3000);
+        return;
+      }
+
+      const clipboardOk = await copyToClipboard(tsvContent);
+      setAiProfileSheetStatus('failed');
+      if (clipboardOk) {
+        setIsCsvCopied(true);
+        setTimeout(() => {
+          setIsCsvCopied(false);
+          setAiProfileSheetStatus('idle');
+        }, 4000);
+      }
+      return;
+    }
 
     interface CardData {
       subtitle: string;
@@ -1366,12 +1650,58 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     pushCard();
     postingText = postingTextParts.join('\n').trim();
 
-    const getFilename = (prompt: string) => {
-        if (!prompt) return '';
-        // S3 URL이 있으면 전체 URL 반환, 없으면 빈 문자열
-        const s3Url = imageStatuses[prompt]?.s3Url;
-        return s3Url || '';
+    const { cards: instaCards } = parseInstagramCardSections(cleanedContent);
+    const instaCardsByNumber = new Map(instaCards.map((card) => [card.number, card]));
+
+    const instaImageSlots = imagePromptSlots.filter((slot) => slot.prompt.trim());
+    const coverSlot = findSlotByCardNumber(instaImageSlots, 0);
+
+    const findImageStatus = (slot: ImagePromptSlot): ImageStatus | undefined => {
+      const statuses = imageStatusesRef.current;
+      return statuses[slot.slotId] ?? statuses[slot.prompt];
     };
+
+    /** slotId(cover, insta-img-N) 기준 S3 URL — 없으면 base64로 재업로드 */
+    const resolveS3Url = async (slot: ImagePromptSlot): Promise<string> => {
+      const status = findImageStatus(slot);
+      if (!status) return '';
+      if (status.s3Url) return status.s3Url;
+      if (!status.url) return '';
+      try {
+        const s3Url = await uploadImageToS3(status.url, slot.prompt || slot.slotId);
+        setImageStatuses((prev) => {
+          const key = prev[slot.slotId] ? slot.slotId : slot.prompt;
+          if (!prev[key]) return prev;
+          return {
+            ...prev,
+            [key]: { ...prev[key], s3Url },
+          };
+        });
+        imageStatusesRef.current = {
+          ...imageStatusesRef.current,
+          [slot.slotId]: { ...status, s3Url },
+        };
+        return s3Url;
+      } catch (uploadErr) {
+        console.error('S3 재업로드 실패:', uploadErr);
+        return '';
+      }
+    };
+
+    const coverThumbnail = coverSlot ? await resolveS3Url(coverSlot) : '';
+    const cardThumbnails: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const cardSlot = findSlotByCardNumber(instaImageSlots, i + 1);
+      cardThumbnails.push(cardSlot ? await resolveS3Url(cardSlot) : '');
+    }
+
+    const hasGeneratedImages = instaImageSlots.some((slot) => Boolean(findImageStatus(slot)?.url));
+    const hasAnyThumbnailUrl = Boolean(coverThumbnail) || cardThumbnails.some(Boolean);
+    if (hasGeneratedImages && !hasAnyThumbnailUrl) {
+      alert(
+        '이미지는 생성됐지만 S3 URL을 가져오지 못했습니다.\n.env 파일의 AWS S3 설정(AWS_S3_ACCESSKEYID, AWS_S3_SECRETACCESSKEY, AWS_S3_REGION, AWS_S3_IMAGE_ROOT)을 확인해 주세요.'
+      );
+    }
 
     // 제목을 8~10글자 단위로 줄바꿈 처리 (최대 30자)
     const formattedTitle = formatTitleWithLineBreaks(title, 10, 30);
@@ -1392,17 +1722,17 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         hashtags[0] || '',                 // 3. 키워드1
         hashtags[1] || '',                 // 4. 키워드2
         hashtags[2] || '',                 // 5. 키워드3
-        getFilename(coverPrompt),          // 6. 표지 썸네일
+        coverThumbnail,                    // 6. 표지 썸네일
         ''                                 // 7. 빈 컬럼
     ];
 
     // 카드1~10 데이터 추가 (각 카드마다: 소제목, 본문, 썸네일, 출처, 빈 컬럼)
     for (let i = 0; i < 10; i++) {
-        const card = cards[i];
+        const card = instaCardsByNumber.get(i + 1);
         if (card) {
             dataRow.push(card.subtitle);                    // 카드 소제목
             dataRow.push(card.body);                        // 카드 본문
-            dataRow.push(getFilename(card.prompt));         // 카드 썸네일
+            dataRow.push(cardThumbnails[i] ?? '');          // 카드 썸네일 (카드 번호 기준)
             dataRow.push(card.source);                      // 카드 출처
         } else {
             // 카드가 없으면 빈 값으로 채움
@@ -1429,14 +1759,6 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     dataRow.push(fullContent1);            // 컨텐츠 생성 내용 전체 (첫 번째 절반)
     dataRow.push(fullContent2);            // 컨텐츠 생성 내용 전체 (두 번째 절반)
 
-    const escapeTsvField = (field: string = '') => {
-      const needsQuoting = field.includes('\t') || field.includes('\n') || field.includes('"');
-      if (needsQuoting) {
-        return `"${field.replace(/"/g, '""')}"`;
-      }
-      return field;
-    };
-    
     let tsvContent = '';
     
     // 네이버 블로그 포맷용 변수 선언 (웹훅 전송에서도 사용)
@@ -1702,12 +2024,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         // 인스타그램 카드 포맷 컬럼별 데이터 구성
         const cardsData: Record<string, any>[] = [];
         for (let i = 0; i < 10; i++) {
-          const card = cards[i];
+          const card = instaCardsByNumber.get(i + 1);
           if (card) {
             cardsData.push({
               subtitle: card.subtitle,
               body: card.body,
-              thumbnail: getFilename(card.prompt),
+              thumbnail: cardThumbnails[i] ?? '',
               source: card.source
             });
           } else {
@@ -1732,7 +2054,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           keyword1: hashtags[0] || '',
           keyword2: hashtags[1] || '',
           keyword3: hashtags[2] || '',
-          coverThumbnail: getFilename(coverPrompt),
+          coverThumbnail,
           cards: cardsData,
           postingText: postingText,
           coreKeywords: keywords,
@@ -1742,17 +2064,6 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         };
       }
       
-      // YYYYMMDDHHMM 형식의 ID 생성
-      const generateId = (): string => {
-        const now = new Date();
-        const year = now.getFullYear().toString();
-        const month = (now.getMonth() + 1).toString().padStart(2, '0');
-        const day = now.getDate().toString().padStart(2, '0');
-        const hours = now.getHours().toString().padStart(2, '0');
-        const minutes = now.getMinutes().toString().padStart(2, '0');
-        return `${year}${month}${day}${hours}${minutes}`;
-      };
-
       const payload = {
         ...tsvData,
         id: generateId(),
@@ -1772,7 +2083,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       console.error('웹훅 전송 실패:', error);
       // 웹훅 전송 실패해도 사용자에게는 알리지 않음 (복사 기능은 정상 동작)
     }
-}, [content, imageStatuses, category, sources, format, keyword]);
+}, [content, imageStatuses, imagePromptSlots, category, sources, format, keyword]);
 
 
   const renderedContent = useMemo(() => {
@@ -1792,8 +2103,151 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     
     // 4. 앞뒤 공백 정리
     cleanedContent = cleanedContent.trim();
+
+    if (format === 'AI-PROMPT') {
+      const aiPromptLines = cleanedContent.split('\n');
+      let currentHeading = '';
+      let currentLines: string[] = [];
+      const sections: Array<{ heading: string; lines: string[] }> = [];
+      const pushAiPromptSection = () => {
+        if (!currentHeading && currentLines.length === 0) return;
+        sections.push({ heading: currentHeading, lines: currentLines });
+        currentHeading = '';
+        currentLines = [];
+      };
+
+      aiPromptLines.forEach((line) => {
+        const headingMatch = line.match(/^##\s+(.+)$/);
+        if (headingMatch) {
+          pushAiPromptSection();
+          currentHeading = headingMatch[1].trim();
+          return;
+        }
+        currentLines.push(line);
+      });
+      pushAiPromptSection();
+
+      return (
+        <>
+          {sections.map((section, sectionIndex) => {
+        const isPromptSection = section.heading.includes('통합 프롬프트');
+        const sectionText = section.lines.join('\n').trim();
+        const sectionKey = `${section.heading || 'ai-prompt'}-${sectionIndex}`;
+        const isSectionCopied = copiedAiPromptSection === sectionKey;
+        return (
+          <section
+            key={`ai-prompt-section-${sectionIndex}`}
+            className={`rounded-xl border p-5 shadow-sm ${
+              sectionIndex === 0
+                ? 'border-[#004B49]/30 bg-[#004B49]/5'
+                : 'border-gray-200 bg-white'
+            }`}
+          >
+            {section.heading && (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {section.heading}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => handleCopyAiPromptSection(sectionKey, sectionText)}
+                  disabled={!sectionText}
+                  className="inline-flex items-center rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                >
+                  {isSectionCopied ? (
+                    <CheckIcon className="mr-1.5 h-4 w-4 text-green-300" />
+                  ) : (
+                    <CopyIcon className="mr-1.5 h-4 w-4" />
+                  )}
+                  {isSectionCopied ? '복사 완료' : '복사'}
+                </button>
+              </div>
+            )}
+            <div className="space-y-2">
+              {section.lines.map((line, lineIndex) => {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                  return <div key={lineIndex} className="h-2" />;
+                }
+                if (trimmed.startsWith('- ')) {
+                  return (
+                    <div key={lineIndex} className="pl-3 border-l-2 border-[#1FA77A]/30">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{trimmed}</p>
+                    </div>
+                  );
+                }
+                return (
+                  <p
+                    key={lineIndex}
+                    className={`whitespace-pre-wrap leading-relaxed ${
+                      isPromptSection
+                        ? 'rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm text-gray-800'
+                        : 'text-base text-gray-700'
+                    }`}
+                  >
+                    {trimmed}
+                  </p>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+          {(profileImageStatus?.url || profileImageStatus?.isLoading || profileImageStatus?.error || isAiProfileFormat) && (
+            <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">프로필 이미지</h3>
+                  <p className="mt-1 text-xs text-gray-500">
+                    모델: {AI_PROFILE_IMAGE_MODEL_ID}
+                    {aiProfileImageOptions.aspectRatio ? ` · ${aiProfileImageOptions.aspectRatio}` : ''}
+                    {aiProfileImageOptions.imageSize ? ` · ${aiProfileImageOptions.imageSize}` : ''}
+                  </p>
+                </div>
+                {profileImageStatus?.url && !profileImageStatus.isLoading && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadProfileImage}
+                    className="inline-flex items-center rounded-md bg-[#004B49] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#003A38]"
+                  >
+                    이미지 다운로드
+                  </button>
+                )}
+              </div>
+              {profileImageStatus?.isLoading && (
+                <div className="flex items-center justify-center py-12 text-gray-500">
+                  <svg className="mr-3 h-6 w-6 animate-spin text-[#004B49]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  프로필 이미지 생성 중...
+                </div>
+              )}
+              {profileImageStatus?.error && !profileImageStatus.isLoading && (
+                <p className="text-sm text-red-600">{profileImageStatus.error}</p>
+              )}
+              {profileImageStatus?.url && !profileImageStatus.isLoading && (
+                <img
+                  src={profileImageStatus.url}
+                  alt="생성된 AI 프로필 이미지"
+                  className="mx-auto max-h-[640px] w-full rounded-lg object-contain"
+                />
+              )}
+              {!profileImageStatus?.url && !profileImageStatus?.isLoading && !profileImageStatus?.error && (
+                <p className="py-8 text-center text-sm text-gray-500">
+                  상단 「프로필 이미지 생성하기」 버튼으로 영문 통합 프롬프트 기반 이미지를 생성할 수 있습니다.
+                </p>
+              )}
+            </section>
+          )}
+        </>
+      );
+    }
     
     const lines = cleanedContent.split('\n');
+    let currentInstaCardNumber = 0;
+    let seenInstaCard = false;
+
     const elements: React.ReactNode[] = [];
     let currentCard: React.ReactNode[] = [];
     let inCard = false;
@@ -2516,40 +2970,53 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         pushCard();
         inCard = false;
         elements.push(<p key={key} className="text-gray-600 mb-4">{line}</p>);
-      } else if (line.startsWith('[Card') || line.startsWith('[Scene')) {
+      } else if (isCardHeaderLine(line) || line.startsWith('[Scene')) {
         pushTitle();
         pushCard();
         inCard = true;
-        const title = line.replace(/\[|\]/g, '');
-        currentCard.push(<h3 key={key} className="text-lg font-semibold text-[#1FA77A] mb-2">{title}</h3>);
-      } else if (line.startsWith('💡 소제목:')) {
+        const cardNumber = getCardNumberFromLine(line);
+        if (cardNumber !== null) {
+          currentInstaCardNumber = cardNumber;
+          seenInstaCard = true;
+        }
+        const cardTitle = line.replace(/\[|\]/g, '');
+        currentCard.push(<h3 key={key} className="text-lg font-semibold text-[#1FA77A] mb-2">{cardTitle}</h3>);
+      } else if (line.match(/^💡\s*소제목\s*[:：]/i)) {
         pushTitle();
-        const subtitle = line.replace('💡 소제목:', '').trim();
+        const subtitle = line.replace(/^💡\s*소제목\s*[:：]\s*/i, '').trim();
         (inCard ? currentCard : elements).push(<p key={key} className="font-bold text-gray-800">{`💡 ${subtitle}`}</p>);
-      } else if (line.startsWith('📸 이미지 프롬프트:')) {
-        const prompt = line.replace('📸 이미지 프롬프트:', '').replace('(표지용)', '').trim();
-        const status = imageStatuses[prompt] || { url: null, s3Url: null, isLoading: false, error: null };
-        
+      } else if (isImagePromptLine(line)) {
+        const prompt = parseImagePromptFromLine(line)!;
+        const statusKey = isInstagramCardFormat
+          ? getInstagramImageSlotId(seenInstaCard, currentInstaCardNumber)
+          : prompt;
+        const status = imageStatuses[statusKey] || {
+          url: null,
+          s3Url: null,
+          isLoading: false,
+          error: null,
+        };
+
         // 네이버 블로그 포맷이고 현재 섹션이 있으면 섹션 내용에 이미지 프롬프트 추가
         if (isNaverBlogFormat && currentSectionTitle) {
           currentSectionContent.push(
-            <ImagePrompt 
-              key={`${key}-${prompt}`}
-              text={prompt} 
-              onGenerate={handleGenerateSingleImage} 
-              onSwitchToImageTab={onSwitchToImageTab} 
-              status={status} 
+            <ImagePrompt
+              key={`${key}-${statusKey}`}
+              text={prompt}
+              onGenerate={() => handleGenerateSingleImage(prompt, statusKey)}
+              onSwitchToImageTab={onSwitchToImageTab}
+              status={status}
             />
           );
         } else {
           pushTitle();
           (inCard ? currentCard : elements).push(
-            <ImagePrompt 
-              key={`${key}-${prompt}`}
-              text={prompt} 
-              onGenerate={handleGenerateSingleImage} 
-              onSwitchToImageTab={onSwitchToImageTab} 
-              status={status} 
+            <ImagePrompt
+              key={`${key}-${statusKey}`}
+              text={prompt}
+              onGenerate={() => handleGenerateSingleImage(prompt, statusKey)}
+              onSwitchToImageTab={onSwitchToImageTab}
+              status={status}
             />
           );
         }
@@ -2711,6 +3178,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         inCard = false;
         elements.push(<h3 key={key} className="text-xl font-semibold text-[#1FA77A] mt-6 mb-2">{line}</h3>);
       } else if (line.trim()) {
+        if (isInstagramCardFormat && isImagePromptLine(line)) {
+          return;
+        }
         if (inTitle) {
           // 제목이 여러 줄로 계속되는 경우
           titleLines.push(line.trim());
@@ -2872,57 +3342,17 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         );
       }
       if (bannerImagePromptContent.length > 0) {
-        const bannerImageStatus = bannerImagePrompt ? (imageStatuses[bannerImagePrompt] || { url: null, s3Url: null, isLoading: false, error: null }) : null;
         elements.push(
           <div key="banner-image-prompt" className="mb-8 pt-6 border-t border-gray-200">
             <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
               <span className="mr-2">🎨</span>
               AI 이미지 생성 프롬프트
             </h3>
+            <p className="text-sm text-gray-500 mb-3">
+              이미지 미리보기·생성은 상단의 <strong>배너 이미지</strong> 영역에서 할 수 있습니다.
+            </p>
             <div className="space-y-3">
               {bannerImagePromptContent}
-              {bannerImagePrompt && bannerImageStatus && (
-                <div className="mt-4">
-                  <ImagePrompt 
-                    text={bannerImagePrompt} 
-                    onGenerate={(prompt) => {
-                      // 배너/포스터 포맷: Gemini 네이티브 이미지 모델
-                      setImageStatuses(prev => ({ ...prev, [prompt]: { url: null, s3Url: null, isLoading: true, error: null } }));
-                      generateImage(
-                        buildBannerImageGenerationPrompt(prompt, bannerImagePromptBuildOptions),
-                        undefined,
-                        bannerImageGenOptions
-                      )
-                        .then(async (base64Image) => {
-                          let s3Url: string | null = null;
-                          try {
-                            s3Url = await uploadImageToS3(base64Image, prompt);
-                          } catch (uploadErr) {
-                            console.error('S3 업로드 실패:', uploadErr);
-                          }
-                          setImageStatuses(prev => ({
-                            ...prev,
-                            [prompt]: {
-                              url: `data:image/jpeg;base64,${base64Image}`,
-                              s3Url: s3Url,
-                              isLoading: false,
-                              error: null
-                            }
-                          }));
-                        })
-                        .catch((e) => {
-                          console.error("이미지 생성 실패:", e);
-                          setImageStatuses(prev => ({
-                            ...prev,
-                            [prompt]: { url: null, s3Url: null, isLoading: false, error: 'Image generation failed.' }
-                          }));
-                        });
-                    }}
-                    onSwitchToImageTab={onSwitchToImageTab} 
-                    status={bannerImageStatus} 
-                  />
-                </div>
-              )}
             </div>
           </div>
         );
@@ -2937,36 +3367,6 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             <div className="space-y-3">
               {bannerGuidelinesContent}
             </div>
-          </div>
-        );
-      }
-      if (format === 'ETC-BANNER' && extraBannerImagePanelPrompt) {
-        const panelPrompt = extraBannerImagePanelPrompt;
-        const panelStatus =
-          imageStatuses[panelPrompt] || {
-            url: null,
-            s3Url: null,
-            isLoading: false,
-            error: null,
-          };
-        const isEventPanel = Boolean(eventBannerImagePrompt && panelPrompt === eventBannerImagePrompt);
-        elements.push(
-          <div key="extra-banner-image-panel" className="mb-8 pt-6 border-t border-gray-200">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-              <span className="mr-2">🎨</span>
-              {isEventPanel ? '이벤트 배너 이미지' : '배너 이미지'}
-            </h3>
-            <p className="text-sm text-gray-600 mb-3">
-              {isEventPanel
-                ? '위 문구를 반영한 배너 이미지를 생성합니다. 상단의 "이미지 생성하기"와 동일한 프롬프트를 사용합니다.'
-                : '생성된 본문을 바탕으로 배너 이미지를 만들 수 있습니다. 상단의 "이미지 생성하기"와 동일한 프롬프트를 사용합니다.'}
-            </p>
-            <ImagePrompt
-              text={panelPrompt}
-              onGenerate={handleGenerateDerivedBannerImage}
-              onSwitchToImageTab={onSwitchToImageTab}
-              status={panelStatus}
-            />
           </div>
         );
       }
@@ -3043,12 +3443,88 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     }
     
     return elements;
-  }, [content, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, handleGenerateDerivedBannerImage, isNaverBlogFormat, isBannerFormat, isPlainTextBannerSubtype, bannerImagePrompt, bannerContentType, eventBannerImagePrompt, extraBannerImagePanelPrompt, bannerImagePromptBuildOptions, bannerImageGenOptions, sources]);
+  }, [content, format, copiedAiPromptSection, handleCopyAiPromptSection, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, isNaverBlogFormat, isBannerFormat, isPlainTextBannerSubtype, isInstagramCardFormat, bannerImagePrompt, bannerContentType, eventBannerImagePrompt, sources, profileImageStatus, handleDownloadProfileImage, aiProfileImageOptions, isAiProfileFormat]);
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
       {content && !isLoading && (
         <div className="self-end mb-4 flex flex-wrap gap-2 justify-end">
+            {isAiProfileFormat && (
+              <>
+                <button
+                  onClick={handleCopyToClipboardForSpreadsheet}
+                  disabled={aiProfileSheetStatus === 'recording'}
+                  className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors disabled:cursor-wait disabled:opacity-70"
+                >
+                  {aiProfileSheetStatus === 'recording' ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      기록 중...
+                    </>
+                  ) : aiProfileSheetStatus === 'success' || isCsvCopied ? (
+                    <>
+                      <CheckIcon className="w-4 h-4 mr-2 text-green-500" />
+                      시트 기록 완료!
+                    </>
+                  ) : (
+                    <>
+                      <SpreadsheetIcon className="w-4 h-4 mr-2" />
+                      구글 스프레드시트 기록
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleGenerateProfileImage}
+                  disabled={!aiProfileEnglishPrompt.trim() || profileImageStatus?.isLoading}
+                  className="flex items-center text-sm bg-[#004B49] hover:bg-[#003A38] text-white font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {profileImageStatus?.isLoading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      {profileImageStatus?.url ? '프로필 이미지 재생성' : '프로필 이미지 생성하기'}
+                    </>
+                  )}
+                </button>
+                {profileImageStatus?.url && !profileImageStatus.isLoading && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadProfileImage}
+                    className="flex items-center text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-4 rounded-md transition-colors"
+                  >
+                    프로필 이미지 다운로드
+                  </button>
+                )}
+              </>
+            )}
+            {isAiProfileFormat && aiProfileSheetStatus === 'failed' && (
+              <p className="w-full text-right text-xs text-amber-700">
+                n8n 웹훅 연결 전입니다. 데이터는 클립보드에 복사되었으니{' '}
+                <a
+                  href={AI_PROFILE_SPREADSHEET_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-amber-900"
+                >
+                  시트
+                </a>
+                에 직접 붙여넣거나, n8n 워크플로를 설정해 주세요.
+              </p>
+            )}
+            {!isAiProfileFormat && (
+              <>
              {showSpreadsheetButton && (
                 <button 
                     onClick={handleCopyToClipboardForSpreadsheet} 
@@ -3058,14 +3534,16 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                     {isCsvCopied ? '복사 완료!' : '스프레드시트용 데이터 복사'}
                 </button>
             )}
-            {imagePrompts.length > 0 && format !== 'YOUTUBE-SHORTFORM' && (
+            {imagePromptSlots.some((s) => s.prompt.trim()) && format !== 'YOUTUBE-SHORTFORM' && (
                 <button 
                     onClick={handleGenerateAllImages} 
                     disabled={isBatchGenerating}
                     className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-300 disabled:cursor-wait"
                 >
                     {isBatchGenerating && <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>}
-                    {isBatchGenerating ? '생성 중...' : `이미지 일괄 생성 (${imagePrompts.length})`}
+                    {isBatchGenerating
+                      ? '생성 중...'
+                      : `이미지 일괄 생성 (${imagePromptSlots.filter((s) => s.prompt.trim()).length})`}
                 </button>
             )}
             {format !== 'YOUTUBE-SHORTFORM' && generatedImageUrls.length > 0 && (
@@ -3086,7 +3564,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               <>
                 <button 
                   onClick={handleGenerateBannerImage} 
-                  disabled={isBannerImageGenerating}
+                  disabled={
+                    isBannerImageGenerating || Boolean(imageStatuses[effectiveBannerImagePrompt]?.isLoading)
+                  }
                   title={bannerImageGenOptions ? '첨부한 예시 이미지의 색·질감·일러스트/실사 등 스타일을 우선 반영해 배너를 만듭니다.' : undefined}
                   className="flex items-center text-sm bg-[#FF9500] hover:bg-[#e88500] text-white font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
@@ -3120,6 +3600,33 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 {copiedAll ? <CheckIcon className="w-4 h-4 mr-2 text-green-400" /> : <CopyIcon className="w-4 h-4 mr-2" />}
                 {copiedAll ? '복사 완료!' : (format === 'YOUTUBE-SHORTFORM' ? '프롬프트 복사' : '전체 복사')}
             </button>
+              </>
+            )}
+        </div>
+      )}
+      {format === 'ETC-BANNER' && content && !isLoading && effectiveBannerImagePrompt && (
+        <div className="mb-6 w-full max-w-4xl mx-auto rounded-xl border border-gray-200 bg-gradient-to-b from-slate-50 to-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+            <span aria-hidden>🎨</span>
+            배너 이미지
+          </h3>
+          <p className="text-xs text-gray-500 mb-3">
+            생성·다운로드 후, 이미지 바로 위에서 수정 요청·영역을 지정해 재생성할 수 있습니다.
+          </p>
+          <ImagePrompt
+            text={effectiveBannerImagePrompt}
+            onGenerate={() => handleGenerateDerivedBannerImage(effectiveBannerImagePrompt)}
+            onSwitchToImageTab={onSwitchToImageTab}
+            editControls={{ onApplyEdit: handleBannerImageApplyEdit }}
+            status={
+              imageStatuses[effectiveBannerImagePrompt] ?? {
+                url: null,
+                s3Url: null,
+                isLoading: false,
+                error: null,
+              }
+            }
+          />
         </div>
       )}
       <div className="flex-grow">
@@ -3143,6 +3650,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         {!isLoading && content && (
             <div className="space-y-4">
               {renderedContent}
+              {format !== 'AI-PROMPT' && (
               <div className="mt-8 pt-6 border-t border-gray-200">
                 <h4 className="text-lg font-semibold text-gray-800 mb-3">
                   {isInfographicContent ? '연관 인포그래픽 주제 추천' : '연관 키워드 / 주제 추천'}
@@ -3192,6 +3700,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                   </div>
                 )}
               </div>
+              )}
                {/* 네이버 블로그 포맷이 아닐 때만 sources 표시 (네이버 블로그는 참고자료 섹션에 포함) */}
                {sources && sources.length > 0 && !isNaverBlogFormat && (
                 <div className="mt-8 pt-6 border-t border-gray-200">

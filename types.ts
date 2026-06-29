@@ -5,6 +5,13 @@ export type BannerDesignStyleId =
   | 'modern_illustration'
   | 'dynamic_sporty';
 
+export type AiPromptType = 'AI 인물';
+
+export type AiPromptAdditionalOption =
+  | 'non_symmetrical_face'
+  | 'specific_device'
+  | 'imperfections';
+
 export interface UserInput {
   category: string;
   format: string;
@@ -17,6 +24,7 @@ export interface UserInput {
   sceneCount: number;
   sectionCount: number;
   tone: string;
+  /** 배너(ETC-BANNER) 이미지 생성·AI 프롬프트(AI-PROMPT) 통합 프롬프트에 반영되는 종횡비 */
   aspectRatio?: string;
   theme?: string;
   style?: string;
@@ -49,6 +57,25 @@ export interface UserInput {
    * 배너/포스터 전 유형 공통: 콘텐츠·이미지 생성 시 반영할 사용자 지정 이미지 프롬프트(구도·색·스타일 등).
    */
   bannerAiImagePromptHint?: string;
+  /** AI 프롬프트: 생성 대상 유형 */
+  aiPromptType?: AiPromptType;
+  aiPromptNationality?: string;
+  aiPromptGender?: string;
+  aiPromptAge?: string;
+  aiPromptHair?: string;
+  aiPromptSkin?: string;
+  aiPromptClothing?: string;
+  aiPromptClothingColor?: string;
+  aiPromptActionPose?: string;
+  aiPromptCameraAngle?: string;
+  aiPromptBackground?: string;
+  aiPromptLighting?: string;
+  /** AI 프롬프트 '카메라 렌즈': 기종명 또는 렌즈 풀네임만 (셀피 등 촬영 방식 문구 제외) */
+  aiPromptCamera?: string;
+  aiPromptPhotoStyle?: string;
+  aiPromptAdditionalOptions?: AiPromptAdditionalOption[];
+  aiPromptRemoveAiEffect?: boolean;
+  aiPromptCustomInput?: string;
 }
 
 export interface GeneratedContent {

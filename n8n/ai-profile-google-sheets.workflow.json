@@ -1,0 +1,108 @@
+{
+  "name": "Teeshot AI 프로필 → Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-profile-spreadsheet",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-ai-profile",
+      "name": "Webhook AI Profile",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "ai-profile-spreadsheet"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1K99GMxwcRO8z7Uobas8pEbPC90gveQo_6YDfmCcoTZc",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "시트1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "통합프롬프트(영문)": "={{ $json.englishPrompt }}",
+            "통합프롬프트(국문)": "={{ $json.koreanPrompt }}",
+            "세부옵션": "={{ $json.detailOptions }}",
+            "AI 효과": "={{ $json.aiEffect }}",
+            "이미지비율": "={{ $json.aspectRatio }}",
+            "생성된 이미지": "={{ $json.generatedImageUrl }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "통합프롬프트(영문)", "displayName": "통합프롬프트(영문)", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "통합프롬프트(국문)", "displayName": "통합프롬프트(국문)", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "세부옵션", "displayName": "세부옵션", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "AI 효과", "displayName": "AI 효과", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "이미지비율", "displayName": "이미지비율", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "생성된 이미지", "displayName": "생성된 이미지", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true }
+          ]
+        },
+        "options": {}
+      },
+      "id": "google-sheets-append",
+      "name": "Google Sheets Append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [220, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, spreadsheetId: '1K99GMxwcRO8z7Uobas8pEbPC90gveQo_6YDfmCcoTZc' } }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [440, 0]
+    }
+  ],
+  "connections": {
+    "Webhook AI Profile": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets Append",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets Append": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}
