@@ -79,12 +79,12 @@ const App: React.FC = () => {
   }, [lastUserInput, handleGenerate]);
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
+    <div className="min-h-screen bg-gray-50 font-sans flex flex-col dark:bg-gray-950">
       <Header />
       <main className="flex-grow container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-4">
-             <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+             <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 dark:bg-gray-900 dark:border-gray-800 dark:shadow-black/20">
                 <InputForm 
                   onGenerate={handleGenerate} 
                   isLoading={isLoading} 

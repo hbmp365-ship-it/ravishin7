@@ -10,6 +10,14 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: true,
         strictPort: false,
+        /** localhost → n8n CORS 회피 (AI 프로필 시트 기록) */
+        proxy: {
+          '/api/ai-profile-n8n': {
+            target: 'https://teeshot.app.n8n.cloud',
+            changeOrigin: true,
+            rewrite: (requestPath) => requestPath.replace(/^\/api\/ai-profile-n8n/, ''),
+          },
+        },
       },
       preview: {
         port: 4173,

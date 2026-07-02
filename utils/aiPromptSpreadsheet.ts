@@ -1,11 +1,23 @@
-/** AI 프로필 → 구글 스프레드시트 TSV 컬럼 (A~F, 시트 1행 헤더와 동일) */
+/** AI 프로필 → 구글 스프레드시트 TSV 컬럼 (A~R, 시트 1행 헤더와 동일) */
 export const AI_PROFILE_SPREADSHEET_HEADERS = [
-  '통합프롬프트(영문)',
-  '통합프롬프트(국문)',
-  '세부옵션',
-  'AI 효과',
-  '이미지비율',
-  '생성된 이미지',
+  '프로필 이미지',
+  '인물 이름',
+  '회원 닉네임',
+  '성별',
+  '나이',
+  '활동지역',
+  '평균타수',
+  '골프경력',
+  '월라운드 횟수',
+  '해외 골프 횟수',
+  '자주가는 골프장',
+  '소개',
+  '통합 프롬프트 등 프롬프트',
+  '프로필 외 이미지1',
+  '프로필 외 이미지2',
+  '프로필 외 이미지3',
+  '프로필 외 이미지4',
+  '프로필 외 이미지5',
 ] as const;
 
 export type ParsedAiPromptForSpreadsheet = {
@@ -54,7 +66,23 @@ export const parseAiPromptForSpreadsheet = (content: string): ParsedAiPromptForS
   return { englishPrompt, koreanPrompt, detailFields, detailFullText };
 };
 
-/** C열: AI 효과·이미지비율을 제외한 세부 옵션 */
+/** M열: 통합·세부 프롬프트 전체 */
+export const buildAiProfilePromptContentColumn = (parsed: ParsedAiPromptForSpreadsheet): string =>
+  [
+    '## 통합 프롬프트 (English)',
+    parsed.englishPrompt,
+    '',
+    '## 통합 프롬프트 (한국어)',
+    parsed.koreanPrompt,
+    '',
+    '## 옵션별 세부 프롬프트',
+    parsed.detailFullText,
+  ]
+    .filter((block, index, arr) => !(block === '' && arr[index - 1] === ''))
+    .join('\n')
+    .trim();
+
+/** C열(구): AI 효과·이미지비율을 제외한 세부 옵션 — 하위 호환용 */
 export const buildAiProfileDetailOptionsText = (parsed: ParsedAiPromptForSpreadsheet): string => {
   const lines: string[] = [];
   for (const line of parsed.detailFullText.split('\n')) {
@@ -69,17 +97,48 @@ export const buildAiProfileDetailOptionsText = (parsed: ParsedAiPromptForSpreads
   return lines.join('\n').trim();
 };
 
-/** TSV 한 행 [A~F] — F열은 생성된 이미지 S3 URL(없으면 빈칸) */
-export const buildAiPromptSpreadsheetRow = (
-  parsed: ParsedAiPromptForSpreadsheet,
-  generatedImageUrl = ''
-): string[] => [
-  parsed.englishPrompt,
-  parsed.koreanPrompt,
-  buildAiProfileDetailOptionsText(parsed),
-  parsed.detailFields['AI 효과 제거'] ?? '',
-  parsed.detailFields['이미지 비율'] ?? '',
-  generatedImageUrl,
-];
+export type AiProfileSpreadsheetRowInput = {
+  profileImageUrl?: string;
+  member: {
+    personName: string;
+    memberNickname: string;
+    gender: string;
+    age: string;
+    activityRegion: string;
+    averageScore: string;
+    golfExperience: string;
+    monthlyRounds: string;
+    overseasGolfCount: string;
+    favoriteGolfCourse: string;
+    introduction: string;
+  };
+  promptContent: string;
+  extraImageUrls?: string[];
+};
+
+/** TSV 한 행 [A~R] */
+export const buildAiPromptSpreadsheetRow = (input: AiProfileSpreadsheetRowInput): string[] => {
+  const extras = input.extraImageUrls ?? [];
+  return [
+    input.profileImageUrl ?? '',
+    input.member.personName,
+    input.member.memberNickname,
+    input.member.gender,
+    input.member.age,
+    input.member.activityRegion,
+    input.member.averageScore,
+    input.member.golfExperience,
+    input.member.monthlyRounds,
+    input.member.overseasGolfCount,
+    input.member.favoriteGolfCourse,
+    input.member.introduction,
+    input.promptContent,
+    extras[0] ?? '',
+    extras[1] ?? '',
+    extras[2] ?? '',
+    extras[3] ?? '',
+    extras[4] ?? '',
+  ];
+};
 
 export const AI_PROFILE_IMAGE_SLOT_ID = 'ai-profile';

@@ -90,17 +90,17 @@ export const VideoGenerator: React.FC = () => {
     }
   };
 
-  const commonInputClass = "w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1FA77A] focus:border-[#1FA77A] transition-colors";
+  const commonInputClass = "w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#006B68] focus:border-[#006B68] transition-colors";
 
   const renderApiKeyScreen = () => (
     <div className="flex flex-col items-center justify-center h-full text-center">
         <div className="text-4xl mb-4">🔑</div>
         <h3 className="text-xl font-semibold text-white mb-2">API 키 선택 필요</h3>
         <p className="max-w-md text-gray-400">영상 생성 기능을 사용하려면 먼저 API 키를 선택해야 합니다. Veo 모델 사용 시 비용이 발생할 수 있습니다.</p>
-        <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-sm text-[#1FA77A] hover:underline my-4">
+        <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-sm text-[#006B68] hover:underline my-4">
             관련 문서 및 비용 안내
         </a>
-        <button onClick={handleSelectKey} className="bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2 px-6 rounded-md transition-colors">
+        <button onClick={handleSelectKey} className="bg-[#006B68] hover:bg-[#005552] text-white font-bold py-2 px-6 rounded-md transition-colors">
             API 키 선택하기
         </button>
     </div>
@@ -141,7 +141,7 @@ export const VideoGenerator: React.FC = () => {
             </div>
         </div>
 
-        <button type="submit" disabled={isLoading || !prompt.trim()} className="w-full flex items-center justify-center bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2.5 px-4 rounded-md transition-all duration-300 disabled:bg-gray-600 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100">
+        <button type="submit" disabled={isLoading || !prompt.trim()} className="w-full flex items-center justify-center bg-[#006B68] hover:bg-[#005552] text-white font-bold py-2.5 px-4 rounded-md transition-all duration-300 disabled:bg-gray-600 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100">
           {isLoading ? (
             <>
               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -161,7 +161,7 @@ export const VideoGenerator: React.FC = () => {
       <div className="flex-grow flex items-center justify-center bg-gray-900/50 rounded-lg p-4">
         {isLoading && (
            <div className="flex flex-col items-center justify-center h-full text-center">
-                <svg className="animate-spin h-10 w-10 text-[#1FA77A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin h-10 w-10 text-[#006B68]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>

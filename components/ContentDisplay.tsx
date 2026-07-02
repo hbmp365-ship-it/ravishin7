@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useId, useRef } from 'react';
 import { CopyIcon, CheckIcon, SpreadsheetIcon } from './icons';
+import { ContentLoadingMotion } from './ContentLoadingMotion';
 import {
   generateImage,
   parseImageDataUrl,
@@ -7,7 +8,7 @@ import {
 } from '../services/geminiService';
 import { uploadImageToS3 } from '../services/s3Service';
 import type { UserInput } from '../types';
-import { buildBannerImageGenerationPrompt, INSTAGRAM_CARD_IMAGE_MODEL_ID, AI_PROFILE_SPREADSHEET_ID, AI_PROFILE_SPREADSHEET_URL, AI_PROFILE_N8N_WEBHOOK_URL, AI_PROFILE_IMAGE_MODEL_ID, AI_PROFILE_IMAGE_SIZE, mapAspectRatioForGeminiImage } from '../constants';
+import { buildBannerImageGenerationPrompt, INSTAGRAM_CARD_IMAGE_MODEL_ID, AI_PROFILE_SPREADSHEET_ID, AI_PROFILE_SPREADSHEET_URL, AI_PROFILE_IMAGE_MODEL_ID, AI_PROFILE_IMAGE_SIZE, mapAspectRatioForGeminiImage, resolveAiProfileN8nWebhookUrl } from '../constants';
 import {
   cleanGeneratedContent,
   extractInstagramCardImageSlots,
@@ -23,9 +24,41 @@ import {
 } from '../utils/instagramCardImagePrompts';
 import {
   AI_PROFILE_IMAGE_SLOT_ID,
+  buildAiProfilePromptContentColumn,
   buildAiPromptSpreadsheetRow,
   parseAiPromptForSpreadsheet,
 } from '../utils/aiPromptSpreadsheet';
+import {
+  AI_PROFILE_EXTRA_IMAGE_SLOT_IDS,
+  buildAiProfileExtraImagePrompt,
+  countGeneratedExtraProfileImages,
+  getNextExtraProfileImageSlotId,
+} from '../utils/aiProfileExtraImages';
+import {
+  buildAiProfileImageGenerationPrompt,
+  resolveAiProfileImageIdentity,
+} from '../utils/aiProfileImagePrompt';
+import {
+  AI_PROFILE_MEMBER_SHEET_SECTION,
+  buildAiProfileMemberMetadataFallback,
+  parseAiProfileMemberMetadata,
+} from '../utils/aiProfileMemberMetadata';
+import { BTN_CHIP, BTN_DEFAULT, BTN_EMPHASIS, BTN_MUTED } from '../theme/brandColors';
+import {
+  CONTENT_BODY,
+  CONTENT_BODY_STRONG,
+  CONTENT_CARD_MUTED,
+  CONTENT_CODE_BLOCK,
+  CONTENT_DIVIDER,
+  CONTENT_EVENT_CARD_BASE,
+  CONTENT_EVENT_CARD_BODY_BG,
+  CONTENT_EVENT_CARD_DEFAULT_BG,
+  CONTENT_GRADIENT_PANEL,
+  CONTENT_INPUT,
+  CONTENT_MUTED,
+  CONTENT_SUBTITLE,
+  CONTENT_TITLE,
+} from '../theme/contentTheme';
  
 // 희엽님 계정 테스트 
 interface ContentDisplayProps {
@@ -149,26 +182,26 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
     if (!editControls || !status.url) return null;
     const canSubmit = editInstruction.trim().length > 0 && !editSubmitting && !status.isLoading;
     return (
-      <div className="rounded-lg border border-amber-200/80 bg-amber-50/90 p-3 space-y-2">
-        <p className="text-xs font-semibold text-amber-900">이미지 수정</p>
-        <label className="block text-xs text-gray-600" htmlFor={editFieldId}>
+      <div className="rounded-lg border border-amber-200/80 bg-amber-50/90 p-3 space-y-2 dark:border-amber-900/50 dark:bg-amber-950/40">
+        <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">이미지 수정</p>
+        <label className={`block text-xs ${CONTENT_MUTED}`} htmlFor={editFieldId}>
           수정 요청 <span className="text-red-500">*</span>
         </label>
         <textarea
           id={editFieldId}
           value={editInstruction}
           onChange={(e) => setEditInstruction(e.target.value)}
-          className="w-full rounded-md border border-gray-300 px-2 py-2 text-sm text-gray-800 min-h-[72px] focus:ring-2 focus:ring-[#1FA77A]/40 focus:border-[#1FA77A]"
+          className={`w-full px-2 py-2 text-sm min-h-[72px] focus:ring-2 focus:ring-[#006B68]/40 focus:border-[#006B68] ${CONTENT_INPUT}`}
           placeholder="예: 헤드라인 색을 흰색으로, 배경 그라데이션을 더 진하게"
           rows={3}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">수정 영역</label>
+            <label className={`block text-xs mb-1 ${CONTENT_MUTED}`}>수정 영역</label>
             <select
               value={editRegionPreset}
               onChange={(e) => setEditRegionPreset(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm text-gray-800"
+              className={`w-full px-2 py-1.5 text-sm ${CONTENT_INPUT}`}
             >
               {BANNER_EDIT_REGION_PRESETS.map((o) => (
                 <option key={o.label} value={o.value}>
@@ -178,12 +211,12 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">영역 추가 설명 (선택)</label>
+            <label className={`block text-xs mb-1 ${CONTENT_MUTED}`}>영역 추가 설명 (선택)</label>
             <input
               type="text"
               value={editRegionExtra}
               onChange={(e) => setEditRegionExtra(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm text-gray-800"
+              className={`w-full px-2 py-1.5 text-sm ${CONTENT_INPUT}`}
               placeholder="예: CTA 버튼만, 로고 자리 제외"
             />
           </div>
@@ -204,7 +237,7 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
               setEditSubmitting(false);
             }
           }}
-          className="w-full sm:w-auto text-sm font-medium bg-[#FF9500] hover:bg-[#e88500] disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-2 px-4 rounded-md transition-colors"
+          className={`w-full sm:w-auto text-sm font-medium py-2 px-4 rounded-md ${BTN_EMPHASIS}`}
         >
           {editSubmitting || status.isLoading ? '수정 적용 중…' : '수정 적용하여 재생성'}
         </button>
@@ -216,11 +249,11 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
     return (
       <div className="space-y-3 mt-2">
         {renderEditPanel()}
-        <div className="bg-gray-100 p-3 rounded-lg flex items-center justify-center aspect-square relative">
+        <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg flex items-center justify-center aspect-square relative">
           {status.url ? (
             <img src={status.url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" aria-hidden />
           ) : null}
-          <svg className="animate-spin h-8 w-8 text-[#1FA77A] relative z-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <svg className="animate-spin h-8 w-8 text-[#006B68] relative z-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
@@ -246,11 +279,11 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
     return (
         <div className="space-y-3 mt-2">
           {renderEditPanel()}
-          <div className="bg-gray-100 rounded-lg group relative aspect-square overflow-hidden border border-gray-200">
+          <div className="bg-gray-100 dark:bg-gray-800 rounded-lg group relative aspect-square overflow-hidden border border-gray-200 dark:border-gray-700">
             <img src={status.url} alt={text} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-center">
                  <p className="text-white text-xs mb-4 leading-snug max-h-24 overflow-auto">{text}</p>
-                 <a href={status.url} download={filename} className="text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2 px-4 rounded-md transition-colors w-full text-center">다운로드</a>
+                 <a href={status.url} download={filename} className={`text-sm py-2 px-4 rounded-md w-full text-center font-bold ${BTN_EMPHASIS}`}>다운로드</a>
                  <button type="button" onClick={() => onSwitchToImageTab(text)} className="mt-2 text-xs text-gray-200 hover:underline">프롬프트 수정</button>
             </div>
         </div>
@@ -259,14 +292,14 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
   }
   
   return (
-    <div className="bg-gray-100 p-3 rounded-lg mt-2 flex items-center justify-between group">
-      <p className="text-gray-700 text-sm font-mono flex-grow pr-2">📸 {text}</p>
+    <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg mt-2 flex items-center justify-between group">
+      <p className={`${CONTENT_BODY_STRONG} text-sm font-mono flex-grow pr-2`}>📸 {text}</p>
       <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           type="button"
           onClick={() => onGenerate()}
           title="이미지 생성하기"
-          className="text-sm bg-gray-200 hover:bg-[#1FA77A] text-gray-800 hover:text-white font-medium py-1 px-3 rounded-md transition-colors"
+          className={`text-sm py-1 px-3 rounded-md ${BTN_DEFAULT} hover:bg-gray-800 hover:text-white`}
         >
           생성
         </button>
@@ -311,6 +344,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   const [aiProfileSheetStatus, setAiProfileSheetStatus] = useState<
     'idle' | 'recording' | 'success' | 'failed'
   >('idle');
+  const [aiProfileSheetError, setAiProfileSheetError] = useState<string | null>(null);
   const prevContentRef = useRef<string | undefined>(undefined);
   const imageStatusesRef = useRef<Record<string, ImageStatus>>({});
 
@@ -570,10 +604,21 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
 
   const isAiProfileFormat = format === 'AI-PROMPT';
 
-  const aiProfileEnglishPrompt = useMemo(() => {
-    if (!isAiProfileFormat || !content) return '';
-    return parseAiPromptForSpreadsheet(cleanGeneratedContent(content)).englishPrompt;
+  const aiProfileParsed = useMemo(() => {
+    if (!isAiProfileFormat || !content) return null;
+    return parseAiPromptForSpreadsheet(cleanGeneratedContent(content));
   }, [isAiProfileFormat, content]);
+
+  const aiProfileEnglishPrompt = useMemo(() => aiProfileParsed?.englishPrompt ?? '', [aiProfileParsed]);
+
+  const aiProfileImagePrompt = useMemo(() => {
+    if (!aiProfileParsed?.englishPrompt) return '';
+    return buildAiProfileImageGenerationPrompt(
+      aiProfileParsed.englishPrompt,
+      resolveAiProfileImageIdentity(aiProfileParsed),
+      aiProfileParsed
+    );
+  }, [aiProfileParsed]);
 
   const profileImageStatus = imageStatuses[AI_PROFILE_IMAGE_SLOT_ID];
 
@@ -769,13 +814,55 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   );
 
   const handleGenerateProfileImage = useCallback(async () => {
-    if (!aiProfileEnglishPrompt.trim()) return;
+    if (!aiProfileImagePrompt.trim()) return;
+    setImageStatuses((prev) => {
+      const next = { ...prev };
+      for (const slotId of AI_PROFILE_EXTRA_IMAGE_SLOT_IDS) {
+        delete next[slotId];
+      }
+      imageStatusesRef.current = next;
+      return next;
+    });
     await generateImageForSlot(
       AI_PROFILE_IMAGE_SLOT_ID,
-      aiProfileEnglishPrompt.trim(),
+      aiProfileImagePrompt.trim(),
       aiProfileImageOptions
     );
-  }, [aiProfileEnglishPrompt, aiProfileImageOptions, generateImageForSlot]);
+  }, [aiProfileImagePrompt, aiProfileImageOptions, generateImageForSlot]);
+
+  const extraProfileImageCount = useMemo(
+    () => countGeneratedExtraProfileImages(imageStatuses),
+    [imageStatuses]
+  );
+
+  const nextExtraProfileImageSlotId = useMemo(
+    () => getNextExtraProfileImageSlotId(imageStatuses),
+    [imageStatuses]
+  );
+
+  const isExtraProfileImageGenerating = useMemo(
+    () => AI_PROFILE_EXTRA_IMAGE_SLOT_IDS.some((slotId) => imageStatuses[slotId]?.isLoading),
+    [imageStatuses]
+  );
+
+  const handleGenerateExtraProfileImage = useCallback(async () => {
+    const profileUrl = profileImageStatus?.url;
+    const slotId = getNextExtraProfileImageSlotId(imageStatusesRef.current);
+    if (!profileUrl || !slotId || !aiProfileEnglishPrompt.trim()) return;
+
+    const parsedRef = parseImageDataUrl(profileUrl);
+    if (!parsedRef) return;
+
+    const slotIndex = AI_PROFILE_EXTRA_IMAGE_SLOT_IDS.indexOf(slotId);
+    const identity = aiProfileParsed ? resolveAiProfileImageIdentity(aiProfileParsed) : {};
+    const prompt = buildAiProfileExtraImagePrompt(slotIndex, identity.age);
+
+    await generateImageForSlot(slotId, prompt, {
+      ...aiProfileImageOptions,
+      identityReferenceImages: [{ mimeType: parsedRef.mimeType, data: parsedRef.data }],
+      identityReferenceFaceOnly: true,
+    });
+  }, [aiProfileImageOptions, aiProfileParsed, generateImageForSlot, profileImageStatus?.url]);
 
   const handleDownloadProfileImage = useCallback(() => {
     const url = profileImageStatus?.url;
@@ -1418,37 +1505,73 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
 
     if (format === 'AI-PROMPT') {
       const parsed = parseAiPromptForSpreadsheet(cleanedContent);
+      const memberMetadata =
+        parseAiProfileMemberMetadata(cleanedContent) ?? buildAiProfileMemberMetadataFallback({});
       const profileStatus = imageStatusesRef.current[AI_PROFILE_IMAGE_SLOT_ID];
       const generatedImageUrl = profileStatus?.s3Url ?? '';
-      const dataRow = buildAiPromptSpreadsheetRow(parsed, generatedImageUrl);
+      const extraImageUrls = AI_PROFILE_EXTRA_IMAGE_SLOT_IDS.map(
+        (slotId) => imageStatusesRef.current[slotId]?.s3Url ?? ''
+      );
+      const promptContent = buildAiProfilePromptContentColumn(parsed);
+      const dataRow = buildAiPromptSpreadsheetRow({
+        profileImageUrl: generatedImageUrl,
+        member: memberMetadata,
+        promptContent,
+        extraImageUrls,
+      });
       const tsvContent = dataRow.map(escapeTsvField).join('\t');
 
       setAiProfileSheetStatus('recording');
+      setAiProfileSheetError(null);
 
       const payload = {
         format: 'AI-PROMPT',
         spreadsheetId: AI_PROFILE_SPREADSHEET_ID,
         spreadsheetUrl: AI_PROFILE_SPREADSHEET_URL,
-        englishPrompt: dataRow[0],
-        koreanPrompt: dataRow[1],
-        detailOptions: dataRow[2],
-        aiEffect: dataRow[3],
-        aspectRatio: dataRow[4],
-        generatedImageUrl: dataRow[5],
+        profileImageUrl: dataRow[0],
+        personName: dataRow[1],
+        memberNickname: dataRow[2],
+        gender: dataRow[3],
+        age: dataRow[4],
+        activityRegion: dataRow[5],
+        averageScore: dataRow[6],
+        golfExperience: dataRow[7],
+        monthlyRounds: dataRow[8],
+        overseasGolfCount: dataRow[9],
+        favoriteGolfCourse: dataRow[10],
+        introduction: dataRow[11],
+        promptContent: dataRow[12],
+        extraImage1: dataRow[13],
+        extraImage2: dataRow[14],
+        extraImage3: dataRow[15],
+        extraImage4: dataRow[16],
+        extraImage5: dataRow[17],
         id: generateId(),
         timestamp: new Date().toISOString(),
       };
 
+      const webhookUrl = resolveAiProfileN8nWebhookUrl();
       let webhookOk = false;
       try {
-        const response = await fetch(AI_PROFILE_N8N_WEBHOOK_URL, {
+        console.info('[AI 프로필] n8n 웹훅 전송', { webhookUrl, payload });
+        const response = await fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        const responseText = await response.text().catch(() => '');
         webhookOk = response.ok;
+        if (!webhookOk) {
+          const errorMessage = `HTTP ${response.status}${responseText ? `: ${responseText.slice(0, 200)}` : ''}`;
+          setAiProfileSheetError(errorMessage);
+          console.error('[AI 프로필] n8n 웹훅 실패:', errorMessage);
+        } else {
+          console.info('[AI 프로필] n8n 웹훅 성공:', responseText || '(empty body)');
+        }
       } catch (error) {
-        console.error('AI 프로필 웹훅 전송 실패:', error);
+        const message = error instanceof Error ? error.message : '알 수 없는 네트워크 오류';
+        setAiProfileSheetError(message);
+        console.error('[AI 프로필] n8n 웹훅 전송 실패:', error);
       }
 
       if (webhookOk) {
@@ -1457,6 +1580,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         setTimeout(() => {
           setIsCsvCopied(false);
           setAiProfileSheetStatus('idle');
+          setAiProfileSheetError(null);
         }, 3000);
         return;
       }
@@ -2129,7 +2253,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
 
       return (
         <>
-          {sections.map((section, sectionIndex) => {
+          {sections
+            .filter((section) => section.heading !== AI_PROFILE_MEMBER_SHEET_SECTION)
+            .map((section, sectionIndex) => {
         const isPromptSection = section.heading.includes('통합 프롬프트');
         const sectionText = section.lines.join('\n').trim();
         const sectionKey = `${section.heading || 'ai-prompt'}-${sectionIndex}`;
@@ -2139,13 +2265,13 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             key={`ai-prompt-section-${sectionIndex}`}
             className={`rounded-xl border p-5 shadow-sm ${
               sectionIndex === 0
-                ? 'border-[#004B49]/30 bg-[#004B49]/5'
-                : 'border-gray-200 bg-white'
+                ? 'border-[#006B68]/30 bg-[#006B68]/5 dark:border-[#006B68]/40 dark:bg-[#006B68]/10'
+                : `border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800/80`
             }`}
           >
             {section.heading && (
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-gray-900">
+                <h3 className={`text-lg font-semibold ${CONTENT_TITLE}`}>
                   {section.heading}
                 </h3>
                 <button
@@ -2171,8 +2297,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 }
                 if (trimmed.startsWith('- ')) {
                   return (
-                    <div key={lineIndex} className="pl-3 border-l-2 border-[#1FA77A]/30">
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{trimmed}</p>
+                    <div key={lineIndex} className="pl-3 border-l-2 border-[#006B68]/30">
+                      <p className={`text-sm whitespace-pre-wrap ${CONTENT_BODY}`}>{trimmed}</p>
                     </div>
                   );
                 }
@@ -2181,8 +2307,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                     key={lineIndex}
                     className={`whitespace-pre-wrap leading-relaxed ${
                       isPromptSection
-                        ? 'rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm text-gray-800'
-                        : 'text-base text-gray-700'
+                        ? `${CONTENT_CODE_BLOCK} p-3`
+                        : `text-base ${CONTENT_BODY}`
                     }`}
                   >
                     {trimmed}
@@ -2193,53 +2319,6 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           </section>
         );
       })}
-          {(profileImageStatus?.url || profileImageStatus?.isLoading || profileImageStatus?.error || isAiProfileFormat) && (
-            <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">프로필 이미지</h3>
-                  <p className="mt-1 text-xs text-gray-500">
-                    모델: {AI_PROFILE_IMAGE_MODEL_ID}
-                    {aiProfileImageOptions.aspectRatio ? ` · ${aiProfileImageOptions.aspectRatio}` : ''}
-                    {aiProfileImageOptions.imageSize ? ` · ${aiProfileImageOptions.imageSize}` : ''}
-                  </p>
-                </div>
-                {profileImageStatus?.url && !profileImageStatus.isLoading && (
-                  <button
-                    type="button"
-                    onClick={handleDownloadProfileImage}
-                    className="inline-flex items-center rounded-md bg-[#004B49] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#003A38]"
-                  >
-                    이미지 다운로드
-                  </button>
-                )}
-              </div>
-              {profileImageStatus?.isLoading && (
-                <div className="flex items-center justify-center py-12 text-gray-500">
-                  <svg className="mr-3 h-6 w-6 animate-spin text-[#004B49]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  프로필 이미지 생성 중...
-                </div>
-              )}
-              {profileImageStatus?.error && !profileImageStatus.isLoading && (
-                <p className="text-sm text-red-600">{profileImageStatus.error}</p>
-              )}
-              {profileImageStatus?.url && !profileImageStatus.isLoading && (
-                <img
-                  src={profileImageStatus.url}
-                  alt="생성된 AI 프로필 이미지"
-                  className="mx-auto max-h-[640px] w-full rounded-lg object-contain"
-                />
-              )}
-              {!profileImageStatus?.url && !profileImageStatus?.isLoading && !profileImageStatus?.error && (
-                <p className="py-8 text-center text-sm text-gray-500">
-                  상단 「프로필 이미지 생성하기」 버튼으로 영문 통합 프롬프트 기반 이미지를 생성할 수 있습니다.
-                </p>
-              )}
-            </section>
-          )}
         </>
       );
     }
@@ -2296,7 +2375,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     let eventBannerSectionBuffer: string[] = [];
 
     const sectionBadgeClass =
-      'inline-flex items-center rounded-full bg-[#004B49]/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-[#004B49]';
+      'inline-flex items-center rounded-full bg-[#006B68]/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-[#006B68]';
 
     const flushBannerBodyField = () => {
       if (!inBannerBodyField || bannerBodyFieldLines.length === 0) {
@@ -2311,12 +2390,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       bannerTextElementsContent.push(
         <div
           key={`banner-bodycopy-${bannerTextElementsContent.length}`}
-          className="mb-4 rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm ring-1 ring-black/5"
+          className="mb-4 rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm ring-1 ring-black/5 dark:border-gray-700 dark:from-gray-800/80 dark:to-gray-900/80 dark:ring-white/5"
         >
           <div className="mb-2">
             <span className={sectionBadgeClass}>바디카피</span>
           </div>
-          <div className="text-base text-gray-800 space-y-3 leading-[1.75] whitespace-pre-wrap">{joined}</div>
+          <div className={`text-base space-y-3 leading-[1.75] whitespace-pre-wrap ${CONTENT_SUBTITLE}`}>{joined}</div>
         </div>
       );
     };
@@ -2333,21 +2412,21 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       const text = raw.trimEnd();
       if (!text.trim()) return;
 
-      const cardBase = 'rounded-xl border border-gray-200 p-5 shadow-sm mb-4 ring-1 ring-black/5';
+      const cardBase = CONTENT_EVENT_CARD_BASE;
       let block: React.ReactNode;
 
       if (label === '헤드라인') {
         block = (
           <>
             <span className={sectionBadgeClass}>헤드라인</span>
-            <p className="mt-3 text-3xl font-black text-gray-900 leading-tight whitespace-pre-wrap">{text}</p>
+            <p className={`mt-3 text-3xl font-black leading-tight whitespace-pre-wrap ${CONTENT_TITLE}`}>{text}</p>
           </>
         );
       } else if (label === '서브카피') {
         block = (
           <>
             <span className={sectionBadgeClass}>서브카피</span>
-            <p className="mt-2 text-xl font-semibold text-gray-800 leading-snug whitespace-pre-wrap">{text}</p>
+            <p className={`mt-2 text-xl font-semibold leading-snug whitespace-pre-wrap ${CONTENT_SUBTITLE}`}>{text}</p>
           </>
         );
       } else if (label === '본문') {
@@ -2355,7 +2434,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         block = (
           <>
             <span className={sectionBadgeClass}>본문</span>
-            <div className="mt-3 space-y-4 text-base text-gray-800 leading-[1.75]">
+            <div className={`mt-3 space-y-4 text-base leading-[1.75] ${CONTENT_SUBTITLE}`}>
               {paras.map((p, i) => (
                 <p key={i} className="whitespace-pre-wrap">
                   {p}
@@ -2368,7 +2447,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         block = (
           <div className="flex flex-col gap-2">
             <span className={sectionBadgeClass}>CTA</span>
-            <span className="inline-flex w-fit max-w-full rounded-full bg-[#1FA77A] px-5 py-2.5 text-base font-bold text-white shadow-md whitespace-pre-wrap">
+            <span className="inline-flex w-fit max-w-full rounded-full bg-[#006B68] px-5 py-2.5 text-base font-bold text-white shadow-md whitespace-pre-wrap">
               {text}
             </span>
           </div>
@@ -2376,13 +2455,13 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       } else {
         block = (
           <>
-            <span className={`${sectionBadgeClass} bg-gray-100 text-gray-700`}>{label}</span>
-            <div className="mt-2 text-gray-700 whitespace-pre-wrap leading-relaxed">{text}</div>
+            <span className={`${sectionBadgeClass} bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200`}>{label}</span>
+            <div className={`mt-2 whitespace-pre-wrap leading-relaxed ${CONTENT_BODY}`}>{text}</div>
           </>
         );
       }
 
-      const cardBg = label === '본문' ? 'bg-slate-50/90' : 'bg-white';
+      const cardBg = label === '본문' ? CONTENT_EVENT_CARD_BODY_BG : CONTENT_EVENT_CARD_DEFAULT_BG;
       elements.push(
         <div key={`evt-banner-${elements.length}-${label}`} className={`${cardBase} ${cardBg}`}>
           {block}
@@ -2393,7 +2472,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     const pushCard = () => {
       if (currentCard.length > 0) {
         elements.push(
-          <div key={`card-container-${elements.length}`} className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-2">
+          <div key={`card-container-${elements.length}`} className={`${CONTENT_CARD_MUTED} p-4 space-y-2`}>
             {currentCard}
           </div>
         );
@@ -2413,10 +2492,10 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           const parts = titleContent.split(keywordRegex);
           
           titleElement = (
-            <h2 className="text-3xl font-extrabold text-gray-900 leading-tight whitespace-pre-wrap">
+            <h2 className="text-3xl font-extrabold text-gray-900 dark:text-gray-100 leading-tight whitespace-pre-wrap">
               {parts.map((part, index) => 
                 part.toLowerCase() === keyword.toLowerCase() ? (
-                  <span key={index} className="text-[#1FA77A]">{part}</span>
+                  <span key={index} className="text-[#006B68]">{part}</span>
                 ) : (
                   <React.Fragment key={index}>{part}</React.Fragment>
                 )
@@ -2425,7 +2504,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           );
         } else {
           titleElement = (
-            <h2 className="text-3xl font-extrabold text-gray-900 leading-tight whitespace-pre-wrap">{titleContent}</h2>
+            <h2 className="text-3xl font-extrabold text-gray-900 dark:text-gray-100 leading-tight whitespace-pre-wrap">{titleContent}</h2>
           );
         }
         
@@ -2437,10 +2516,10 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             const keywordRegex = new RegExp(`(${keyword})`, 'gi');
             const parts = titleContent.split(keywordRegex);
             titleDisplay = (
-              <h1 className="text-5xl font-black text-gray-900 leading-tight mb-0">
+              <h1 className="text-5xl font-black text-gray-900 dark:text-gray-100 leading-tight mb-0">
                 {parts.map((part, index) => 
                   part.toLowerCase() === keyword.toLowerCase() ? (
-                    <span key={index} className="text-[#1FA77A]">{part}</span>
+                    <span key={index} className="text-[#006B68]">{part}</span>
                   ) : (
                     <React.Fragment key={index}>{part}</React.Fragment>
                   )
@@ -2448,7 +2527,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               </h1>
             );
           } else {
-            titleDisplay = <h1 className="text-5xl font-black text-gray-900 leading-tight mb-0">{titleContent}</h1>;
+            titleDisplay = <h1 className="text-5xl font-black text-gray-900 dark:text-gray-100 leading-tight mb-0">{titleContent}</h1>;
           }
           elements.push(
             <div key={`title-${titleStartIndex}`} className="mb-12 mt-8">
@@ -2474,9 +2553,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     const pushPostingSection = () => {
       if (postingContent.length > 0) {
         elements.push(
-          <div key={`posting-section-${elements.length}`} className="mt-6 pt-6 border-t border-gray-200">
-            <h3 className="text-xl font-semibold text-[#1FA77A] mb-4">✍️ 포스팅 글</h3>
-            <div className="space-y-3 text-gray-700">
+          <div key={`posting-section-${elements.length}`} className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <h3 className="text-xl font-semibold text-[#006B68] mb-4">✍️ 포스팅 글</h3>
+            <div className={`space-y-3 ${CONTENT_BODY}`}>
               {postingContent}
             </div>
           </div>
@@ -2494,7 +2573,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             <div className="mb-3">
               <span className="text-sm font-medium text-gray-500">서론</span>
             </div>
-            <div className="space-y-5 text-base text-gray-700 leading-relaxed">
+            <div className="space-y-5 text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               {introContent}
             </div>
           </div>
@@ -2540,8 +2619,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         
         elements.push(
           <div key={`section-${elements.length}`} className={isFirstSection ? "mt-6 mb-24" : "mt-24 mb-24 pt-10 border-t-2 border-gray-300"}>
-            <h3 className="text-xl font-semibold text-gray-800 mb-6">{currentSectionTitle}</h3>
-            <div className="space-y-5 text-base text-gray-700 leading-relaxed">
+            <h3 className={`text-xl font-semibold mb-6 ${CONTENT_SUBTITLE}`}>{currentSectionTitle}</h3>
+            <div className="space-y-5 text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               {currentSectionContent}
             </div>
           </div>
@@ -2565,7 +2644,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         elements.push(
           <div key={`summary-section-${elements.length}`} className={`${hasBodySection ? 'mt-16 mb-6 pt-8' : 'mt-16 mb-6 pt-8 border-t-2 border-gray-300'}`}>
             <h3 className="text-base font-normal text-gray-500 mb-5 uppercase tracking-wide">핵심 요약</h3>
-            <div className="text-base text-gray-700 space-y-3">
+            <div className="text-base text-gray-700 dark:text-gray-300 space-y-3">
               {summaryContent}
             </div>
           </div>
@@ -2580,7 +2659,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         elements.push(
           <div key={`conclusion-section-${elements.length}`} className="mt-16 mb-6 pt-8 border-t-2 border-gray-300">
             <h3 className="text-base font-normal text-gray-500 mb-5 uppercase tracking-wide">결론</h3>
-            <div className="text-base text-gray-700 space-y-3">
+            <div className="text-base text-gray-700 dark:text-gray-300 space-y-3">
               {conclusionContent}
             </div>
           </div>
@@ -2605,7 +2684,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                   <ul className="list-none space-y-2">
                     {sources.map((source, index) => (
                       <li key={index} className="flex items-start">
-                        <span className="text-[#1FA77A] mr-2">•</span>
+                        <span className="text-[#006B68] mr-2">•</span>
                         <a 
                           href={source.uri} 
                           target="_blank" 
@@ -2689,7 +2768,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         inPostingSection = false;
         elements.push(
           <div key={key} className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="font-bold text-gray-800">{line}</p>
+            <p className="font-bold text-gray-800 dark:text-gray-200">{line}</p>
           </div>
         );
         return;
@@ -2705,7 +2784,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           );
         } else if (line.startsWith('#')) {
           postingContent.push(
-            <p key={key} className="text-[#1FA77A] font-medium">
+            <p key={key} className="text-[#006B68] font-medium">
               {line}
             </p>
           );
@@ -2783,7 +2862,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               <div className="mb-2">
                 <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">헤드라인</span>
               </div>
-              <h1 className="text-4xl font-black text-gray-900 leading-tight">{bannerTitleContent.join(' ')}</h1>
+              <h1 className="text-4xl font-black text-gray-900 dark:text-gray-100 leading-tight">{bannerTitleContent.join(' ')}</h1>
             </div>
           );
           bannerTitleContent = [];
@@ -2795,7 +2874,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               <div className="mb-2">
                 <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">기본 비율</span>
               </div>
-              <p className="text-lg font-semibold text-gray-800">{bannerAspectRatioContent.join(' ')}</p>
+              <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">{bannerAspectRatioContent.join(' ')}</p>
             </div>
           );
           bannerAspectRatioContent = [];
@@ -2807,7 +2886,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               <div className="mb-2">
                 <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">스타일</span>
               </div>
-              <p className="text-lg font-semibold text-gray-800">{bannerStyleContent.join(' ')}</p>
+              <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">{bannerStyleContent.join(' ')}</p>
             </div>
           );
           bannerStyleContent = [];
@@ -2815,9 +2894,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         } else if (inBannerDesignConcept && line.trim() && !line.startsWith('📐')) {
           const isListItem = /^[-•]\s/.test(line.trim());
           const textElement = isListItem ? (
-            <li key={key} className="text-base text-gray-700 mb-2 ml-4">{line.trim().replace(/^[-•]\s/, '')}</li>
+            <li key={key} className={`text-base mb-2 ml-4 ${CONTENT_BODY}`}>{line.trim().replace(/^[-•]\s/, '')}</li>
           ) : (
-            <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed">{line.trim()}</p>
+            <p key={key} className="text-base text-gray-700 dark:text-gray-300 mb-3 leading-relaxed">{line.trim()}</p>
           );
           bannerDesignConceptContent.push(textElement);
         } else if (inBannerTextElements && !line.startsWith('📝')) {
@@ -2840,12 +2919,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             bannerTextElementsContent.push(
               <div
                 key={`banner-headline-${bannerTextElementsContent.length}`}
-                className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm ring-1 ring-black/5"
+                className={`mb-4 rounded-xl p-4 shadow-sm ring-1 ring-black/5 dark:ring-white/5 border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800/80`}
               >
                 <div className="mb-2">
                   <span className={sectionBadgeClass}>헤드라인</span>
                 </div>
-                <p className="text-2xl font-black text-gray-900 leading-tight whitespace-pre-wrap">{headlineText}</p>
+                <p className="text-2xl font-black text-gray-900 dark:text-gray-100 leading-tight whitespace-pre-wrap">{headlineText}</p>
               </div>
             );
           } else if (line.match(/^[-•]\s*서브헤드라인:/)) {
@@ -2859,7 +2938,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 <div className="mb-2">
                   <span className={sectionBadgeClass}>서브헤드라인</span>
                 </div>
-                <p className="text-xl font-semibold text-gray-800 leading-snug whitespace-pre-wrap">{subheadlineText}</p>
+                <p className={`text-xl font-semibold leading-snug whitespace-pre-wrap ${CONTENT_SUBTITLE}`}>{subheadlineText}</p>
               </div>
             );
           } else if (line.match(/^[-•]\s*바디카피:/)) {
@@ -2875,7 +2954,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 <div className="mb-2">
                   <span className={sectionBadgeClass}>CTA</span>
                 </div>
-                <span className="inline-flex w-fit max-w-full rounded-full bg-[#1FA77A] px-4 py-2 text-base font-bold text-white shadow-md whitespace-pre-wrap">
+                <span className="inline-flex w-fit max-w-full rounded-full bg-[#006B68] px-4 py-2 text-base font-bold text-white shadow-md whitespace-pre-wrap">
                   {ctaText}
                 </span>
               </div>
@@ -2883,21 +2962,21 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           } else if (line.trim()) {
             const isListItem = /^[-•]\s/.test(line.trim());
             const textElement = isListItem ? (
-              <li key={key} className="text-base text-gray-700 mb-2 ml-4">{line.trim().replace(/^[-•]\s/, '')}</li>
+              <li key={key} className={`text-base mb-2 ml-4 ${CONTENT_BODY}`}>{line.trim().replace(/^[-•]\s/, '')}</li>
             ) : (
-              <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed">{line.trim()}</p>
+              <p key={key} className="text-base text-gray-700 dark:text-gray-300 mb-3 leading-relaxed">{line.trim()}</p>
             );
             bannerTextElementsContent.push(textElement);
           }
         } else if (inBannerImagePrompt && line.trim() && !line.startsWith('🎨')) {
-          const textElement = <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed font-mono bg-gray-50 p-3 rounded border border-gray-200">{line.trim()}</p>;
+          const textElement = <p key={key} className={`text-base mb-3 leading-relaxed font-mono p-3 rounded ${CONTENT_CODE_BLOCK}`}>{line.trim()}</p>;
           bannerImagePromptContent.push(textElement);
         } else if (inBannerGuidelines && line.trim() && !line.startsWith('💡')) {
           const isListItem = /^[-•]\s/.test(line.trim());
           const textElement = isListItem ? (
-            <li key={key} className="text-base text-gray-700 mb-2 ml-4">{line.trim().replace(/^[-•]\s/, '')}</li>
+            <li key={key} className={`text-base mb-2 ml-4 ${CONTENT_BODY}`}>{line.trim().replace(/^[-•]\s/, '')}</li>
           ) : (
-            <p key={key} className="text-base text-gray-700 mb-3 leading-relaxed">{line.trim()}</p>
+            <p key={key} className="text-base text-gray-700 dark:text-gray-300 mb-3 leading-relaxed">{line.trim()}</p>
           );
           bannerGuidelinesContent.push(textElement);
         }
@@ -2940,8 +3019,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           pushCard();
           inCard = false;
           elements.push(
-            <div key={key} className="mt-12 mb-12 p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-lg border border-gray-200">
-              <h3 className="text-base font-semibold text-gray-700 mb-2 flex items-center">
+            <div key={key} className={`mt-12 mb-12 p-4 rounded-lg border bg-gradient-to-r from-gray-50 to-blue-50 dark:from-gray-800/80 dark:to-blue-950/30 ${CONTENT_DIVIDER}`}>
+              <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center">
                 <span className="mr-2">📸</span>
                 대표 이미지
               </h3>
@@ -2980,11 +3059,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           seenInstaCard = true;
         }
         const cardTitle = line.replace(/\[|\]/g, '');
-        currentCard.push(<h3 key={key} className="text-lg font-semibold text-[#1FA77A] mb-2">{cardTitle}</h3>);
+        currentCard.push(<h3 key={key} className="text-lg font-semibold text-[#006B68] mb-2">{cardTitle}</h3>);
       } else if (line.match(/^💡\s*소제목\s*[:：]/i)) {
         pushTitle();
         const subtitle = line.replace(/^💡\s*소제목\s*[:：]\s*/i, '').trim();
-        (inCard ? currentCard : elements).push(<p key={key} className="font-bold text-gray-800">{`💡 ${subtitle}`}</p>);
+        (inCard ? currentCard : elements).push(<p key={key} className="font-bold text-gray-800 dark:text-gray-200">{`💡 ${subtitle}`}</p>);
       } else if (isImagePromptLine(line)) {
         const prompt = parseImagePromptFromLine(line)!;
         const statusKey = isInstagramCardFormat
@@ -3024,7 +3103,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         pushTitle();
         pushCard();
         inCard = false;
-        elements.push(<p key={key} className="text-[#1FA77A] mt-4">{line}</p>);
+        elements.push(<p key={key} className="text-[#006B68] mt-4">{line}</p>);
       } else if (line.startsWith('후속 제안')) {
           pushTitle();
           return;
@@ -3093,8 +3172,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         pushCard();
         inCard = false;
         elements.push(
-          <div key={key} className="mt-12 mb-12 p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-lg border border-gray-200">
-            <h3 className="text-base font-semibold text-gray-700 mb-2 flex items-center">
+          <div key={key} className={`mt-12 mb-12 p-4 rounded-lg border bg-gradient-to-r from-gray-50 to-blue-50 dark:from-gray-800/80 dark:to-blue-950/30 ${CONTENT_DIVIDER}`}>
+            <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center">
               <span className="mr-2">📸</span>
               대표 이미지
             </h3>
@@ -3176,7 +3255,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         pushTitle();
         pushCard();
         inCard = false;
-        elements.push(<h3 key={key} className="text-xl font-semibold text-[#1FA77A] mt-6 mb-2">{line}</h3>);
+        elements.push(<h3 key={key} className="text-xl font-semibold text-[#006B68] mt-6 mb-2">{line}</h3>);
       } else if (line.trim()) {
         if (isInstagramCardFormat && isImagePromptLine(line)) {
           return;
@@ -3190,18 +3269,18 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           if (isListItem) {
             summaryContent.push(
               <div key={key} className="mb-3">
-                <p className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
+                <p className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
               </div>
             );
           } else {
             summaryContent.push(
-              <p key={key} className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-3">{line.trim()}</p>
+              <p key={key} className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-3">{line.trim()}</p>
             );
           }
         } else if (inConclusionSection) {
           // 결론 섹션 내용 수집
           conclusionContent.push(
-            <p key={key} className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-4">{line.trim()}</p>
+            <p key={key} className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-4">{line.trim()}</p>
           );
         } else {
           // 네이버 블로그 포맷 섹션별 내용 수집
@@ -3210,11 +3289,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             if (currentSectionTitle) {
               const isListItem = /^[•\-\*]\s/.test(line.trim());
               const textElement = isListItem ? (
-                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#1FA77A]/30 py-1">
-                  <p className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
+                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#006B68]/30 py-1">
+                  <p className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
                 </div>
               ) : (
-                <p key={key} className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-3">{line.trim()}</p>
+                <p key={key} className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-3">{line.trim()}</p>
               );
               currentSectionContent.push(textElement);
             } else if (inIntroSection) {
@@ -3222,11 +3301,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               const lineText = line.trim();
               const isListItem = /^[•\-\*]\s/.test(lineText);
               const textElement = isListItem ? (
-                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#1FA77A]/30 py-1">
-                  <p className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">{lineText}</p>
+                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#006B68]/30 py-1">
+                  <p className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{lineText}</p>
                 </div>
               ) : (
-                <p key={key} className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-3">{lineText}</p>
+                <p key={key} className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-3">{lineText}</p>
               );
               if (!lineText.match(/^[✔️✅]\s*(문제|해결책|핵심키워드|키워드)/) && 
                   !lineText.match(/\(첫 문단\)|가장 중요한 영역|키워드 총.*회/) &&
@@ -3237,26 +3316,26 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               // 목차 섹션
               const isListItem = /^[•\-\*]\s/.test(line.trim());
               const textElement = isListItem ? (
-                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#1FA77A]/30 py-1">
-                  <p className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
+                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#006B68]/30 py-1">
+                  <p className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
                 </div>
               ) : (
-                <p key={key} className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-3">{line.trim()}</p>
+                <p key={key} className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-3">{line.trim()}</p>
               );
               tocContent.push(textElement);
             } else if (inReferencesSection) {
               referencesContent.push(<p key={key} className="text-sm text-gray-600 mb-2">{line.trim()}</p>);
             } else if (inTagsSection) {
               if (line.startsWith('#')) {
-                tagsContent.push(<span key={key} className="text-[#1FA77A] font-medium mr-2">{line}</span>);
+                tagsContent.push(<span key={key} className="text-[#006B68] font-medium mr-2">{line}</span>);
               } else {
-                tagsContent.push(<p key={key} className="text-[#1FA77A] font-medium">{line.trim()}</p>);
+                tagsContent.push(<p key={key} className="text-[#006B68] font-medium">{line.trim()}</p>);
               }
             } else {
               // 일반 본문 텍스트
               const paragraphClass = inCard 
                 ? "text-gray-700 whitespace-pre-wrap leading-relaxed mb-3"
-                : "text-base text-gray-700 whitespace-pre-wrap leading-relaxed mb-4 pl-2 border-l-2 border-gray-200 py-1";
+                : "text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-4 pl-2 border-l-2 border-gray-200 py-1";
               (inCard ? currentCard : elements).push(<p key={key} className={paragraphClass}>{line}</p>);
             }
           } else {
@@ -3265,14 +3344,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             
             if (isListItem) {
               (inCard ? currentCard : elements).push(
-                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#1FA77A]/30 py-1">
-                  <p className="text-base text-gray-700 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
+                <div key={key} className="mb-2 ml-4 pl-4 border-l-2 border-[#006B68]/30 py-1">
+                  <p className="text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{line.trim()}</p>
                 </div>
               );
             } else {
               const paragraphClass = inCard 
                 ? "text-gray-700 whitespace-pre-wrap leading-relaxed mb-3"
-                : "text-base text-gray-700 whitespace-pre-wrap leading-loose mb-4 pl-1";
+                : "text-base text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-loose mb-4 pl-1";
               (inCard ? currentCard : elements).push(<p key={key} className={paragraphClass}>{line}</p>);
             }
           }
@@ -3291,7 +3370,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             <div className="mb-2">
               <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">헤드라인</span>
             </div>
-            <h1 className="text-4xl font-black text-gray-900 leading-tight">{bannerTitleContent.join(' ')}</h1>
+            <h1 className="text-4xl font-black text-gray-900 dark:text-gray-100 leading-tight">{bannerTitleContent.join(' ')}</h1>
           </div>
         );
       }
@@ -3301,7 +3380,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             <div className="mb-2">
               <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">기본 비율</span>
             </div>
-            <p className="text-lg font-semibold text-gray-800">{bannerAspectRatioContent.join(' ')}</p>
+            <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">{bannerAspectRatioContent.join(' ')}</p>
           </div>
         );
       }
@@ -3311,14 +3390,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             <div className="mb-2">
               <span className="text-sm font-medium text-gray-500 uppercase tracking-wide">스타일</span>
             </div>
-            <p className="text-lg font-semibold text-gray-800">{bannerStyleContent.join(' ')}</p>
+            <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">{bannerStyleContent.join(' ')}</p>
           </div>
         );
       }
       if (bannerDesignConceptContent.length > 0) {
         elements.push(
-          <div key="banner-design-concept" className="mb-8 pt-6 border-t border-gray-200">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+          <div key="banner-design-concept" className="mb-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <h3 className={`text-xl font-semibold mb-4 flex items-center ${CONTENT_SUBTITLE}`}>
               <span className="mr-2">📐</span>
               디자인 컨셉
             </h3>
@@ -3330,8 +3409,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       }
       if (bannerTextElementsContent.length > 0) {
         elements.push(
-          <div key="banner-text-elements" className="mb-8 pt-6 border-t border-gray-200">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+          <div key="banner-text-elements" className="mb-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <h3 className={`text-xl font-semibold mb-4 flex items-center ${CONTENT_SUBTITLE}`}>
               <span className="mr-2">📝</span>
               주요 텍스트 요소
             </h3>
@@ -3343,8 +3422,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       }
       if (bannerImagePromptContent.length > 0) {
         elements.push(
-          <div key="banner-image-prompt" className="mb-8 pt-6 border-t border-gray-200">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+          <div key="banner-image-prompt" className="mb-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <h3 className={`text-xl font-semibold mb-4 flex items-center ${CONTENT_SUBTITLE}`}>
               <span className="mr-2">🎨</span>
               AI 이미지 생성 프롬프트
             </h3>
@@ -3359,8 +3438,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       }
       if (bannerGuidelinesContent.length > 0) {
         elements.push(
-          <div key="banner-guidelines" className="mb-8 pt-6 border-t border-gray-200">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+          <div key="banner-guidelines" className="mb-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <h3 className={`text-xl font-semibold mb-4 flex items-center ${CONTENT_SUBTITLE}`}>
               <span className="mr-2">💡</span>
               디자인 가이드라인
             </h3>
@@ -3423,7 +3502,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               <ul className="list-none space-y-2">
                 {sources.map((source, index) => (
                   <li key={index} className="flex items-start">
-                    <span className="text-[#1FA77A] mr-2">•</span>
+                    <span className="text-[#006B68] mr-2">•</span>
                     <a 
                       href={source.uri} 
                       target="_blank" 
@@ -3446,7 +3525,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   }, [content, format, copiedAiPromptSection, handleCopyAiPromptSection, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, isNaverBlogFormat, isBannerFormat, isPlainTextBannerSubtype, isInstagramCardFormat, bannerImagePrompt, bannerContentType, eventBannerImagePrompt, sources, profileImageStatus, handleDownloadProfileImage, aiProfileImageOptions, isAiProfileFormat]);
 
   return (
-    <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col">
+    <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col dark:bg-gray-900 dark:border-gray-800 dark:shadow-black/20">
       {content && !isLoading && (
         <div className="self-end mb-4 flex flex-wrap gap-2 justify-end">
             {isAiProfileFormat && (
@@ -3454,7 +3533,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 <button
                   onClick={handleCopyToClipboardForSpreadsheet}
                   disabled={aiProfileSheetStatus === 'recording'}
-                  className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors disabled:cursor-wait disabled:opacity-70"
+                  className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_DEFAULT}`}
                 >
                   {aiProfileSheetStatus === 'recording' ? (
                     <>
@@ -3479,7 +3558,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 <button
                   onClick={handleGenerateProfileImage}
                   disabled={!aiProfileEnglishPrompt.trim() || profileImageStatus?.isLoading}
-                  className="flex items-center text-sm bg-[#004B49] hover:bg-[#003A38] text-white font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_EMPHASIS}`}
                 >
                   {profileImageStatus?.isLoading ? (
                     <>
@@ -3498,11 +3577,11 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                     </>
                   )}
                 </button>
-                {profileImageStatus?.url && !profileImageStatus.isLoading && (
+                {profileImageStatus?.url && !profileImageStatus?.isLoading && (
                   <button
                     type="button"
                     onClick={handleDownloadProfileImage}
-                    className="flex items-center text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-4 rounded-md transition-colors"
+                    className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_DEFAULT}`}
                   >
                     프로필 이미지 다운로드
                   </button>
@@ -3511,7 +3590,9 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             )}
             {isAiProfileFormat && aiProfileSheetStatus === 'failed' && (
               <p className="w-full text-right text-xs text-amber-700">
-                n8n 웹훅 연결 전입니다. 데이터는 클립보드에 복사되었으니{' '}
+                n8n 웹훅 전송에 실패했습니다.
+                {aiProfileSheetError ? ` (${aiProfileSheetError})` : ''}{' '}
+                데이터는 클립보드에 복사되었으니{' '}
                 <a
                   href={AI_PROFILE_SPREADSHEET_URL}
                   target="_blank"
@@ -3520,7 +3601,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 >
                   시트
                 </a>
-                에 직접 붙여넣거나, n8n 워크플로를 설정해 주세요.
+                에 직접 붙여넣거나, n8n Executions·컬럼 매핑을 확인해 주세요.
+              </p>
+            )}
+            {isAiProfileFormat && aiProfileSheetStatus === 'success' && (
+              <p className="w-full text-right text-xs text-gray-500">
+                시트에 행이 없으면 n8n → Executions에서 Google Sheets 노드 오류·컬럼 매핑을 확인하세요.
               </p>
             )}
             {!isAiProfileFormat && (
@@ -3528,7 +3614,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
              {showSpreadsheetButton && (
                 <button 
                     onClick={handleCopyToClipboardForSpreadsheet} 
-                    className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors"
+                    className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_DEFAULT}`}
                 >
                     {isCsvCopied ? <CheckIcon className="w-4 h-4 mr-2 text-green-400" /> : <SpreadsheetIcon className="w-4 h-4 mr-2" />}
                     {isCsvCopied ? '복사 완료!' : '스프레드시트용 데이터 복사'}
@@ -3538,7 +3624,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 <button 
                     onClick={handleGenerateAllImages} 
                     disabled={isBatchGenerating}
-                    className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-300 disabled:cursor-wait"
+                    className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_DEFAULT} disabled:cursor-wait`}
                 >
                     {isBatchGenerating && <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>}
                     {isBatchGenerating
@@ -3547,7 +3633,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 </button>
             )}
             {format !== 'YOUTUBE-SHORTFORM' && generatedImageUrls.length > 0 && (
-                 <button onClick={handleDownloadAll} className="flex items-center text-sm bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-4 rounded-md transition-colors">
+                 <button onClick={handleDownloadAll} className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_EMPHASIS}`}>
                     {`생성된 이미지 다운로드 (${generatedImageUrls.length})`}
                  </button>
             )}
@@ -3568,7 +3654,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                     isBannerImageGenerating || Boolean(imageStatuses[effectiveBannerImagePrompt]?.isLoading)
                   }
                   title={bannerImageGenOptions ? '첨부한 예시 이미지의 색·질감·일러스트/실사 등 스타일을 우선 반영해 배너를 만듭니다.' : undefined}
-                  className="flex items-center text-sm bg-[#FF9500] hover:bg-[#e88500] text-white font-medium py-2 px-4 rounded-md transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_EMPHASIS}`}
                 >
                   {isBannerImageGenerating ? (
                     <>
@@ -3589,14 +3675,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                 </button>
                 <button 
                   onClick={handleCopyBannerPrompt} 
-                  className="flex items-center text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors"
+                  className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_DEFAULT}`}
                 >
                   {bannerPromptCopied ? <CheckIcon className="w-4 h-4 mr-2 text-green-500" /> : <CopyIcon className="w-4 h-4 mr-2" />}
                   {bannerPromptCopied ? '복사 완료!' : '프롬프트 복사'}
                 </button>
               </>
             )}
-            <button onClick={handleCopyAll} className="flex items-center text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-2 px-4 rounded-md transition-colors">
+            <button onClick={handleCopyAll} className={`flex items-center text-sm py-2 px-4 rounded-md ${BTN_MUTED}`}>
                 {copiedAll ? <CheckIcon className="w-4 h-4 mr-2 text-green-400" /> : <CopyIcon className="w-4 h-4 mr-2" />}
                 {copiedAll ? '복사 완료!' : (format === 'YOUTUBE-SHORTFORM' ? '프롬프트 복사' : '전체 복사')}
             </button>
@@ -3605,12 +3691,12 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         </div>
       )}
       {format === 'ETC-BANNER' && content && !isLoading && effectiveBannerImagePrompt && (
-        <div className="mb-6 w-full max-w-4xl mx-auto rounded-xl border border-gray-200 bg-gradient-to-b from-slate-50 to-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+        <div className={`mb-6 w-full max-w-4xl mx-auto p-4 shadow-sm ${CONTENT_GRADIENT_PANEL}`}>
+          <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${CONTENT_SUBTITLE}`}>
             <span aria-hidden>🎨</span>
             배너 이미지
           </h3>
-          <p className="text-xs text-gray-500 mb-3">
+          <p className={`text-xs mb-3 ${CONTENT_MUTED}`}>
             생성·다운로드 후, 이미지 바로 위에서 수정 요청·영역을 지정해 재생성할 수 있습니다.
           </p>
           <ImagePrompt
@@ -3630,29 +3716,106 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         </div>
       )}
       <div className="flex-grow">
-        {isLoading && (
-          <div className="flex flex-col items-center justify-center h-full min-h-[calc(100vh-20rem)]">
-            <svg className="animate-spin h-12 w-12 text-[#1FA77A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p className="mt-6 text-lg font-medium text-gray-700">AI가 열심히 콘텐츠를 만들고 있습니다...</p>
-          </div>
-        )}
-        {error && <div className="text-red-600 text-center">{error}</div>}
-        {!isLoading && !error && !content && (
-           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 min-h-[calc(100vh-20rem)]">
-             <div className="text-6xl mb-6">⛳️</div>
-            <h3 className="text-2xl font-bold text-gray-800 mb-3">TeeShot 콘텐츠 생성기</h3>
-            <p className="max-w-md text-base text-gray-600 leading-relaxed">왼쪽 양식을 작성하고 '콘텐츠 생성하기'를 클릭하여<br/>골프 관련 소셜 미디어 콘텐츠를 만들어보세요.</p>
-          </div>
-        )}
+        {isLoading && <ContentLoadingMotion />}
+        {error && <div className="text-red-600 dark:text-red-400 text-center">{error}</div>}
+        {!isLoading && !error && !content && <ContentLoadingMotion />}
         {!isLoading && content && (
             <div className="space-y-4">
+              {isAiProfileFormat && (
+                <section className="rounded-xl border border-[#006B68]/30 bg-white p-5 shadow-sm dark:border-[#006B68]/40 dark:bg-gray-800/80">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className={`text-lg font-semibold ${CONTENT_TITLE}`}>프로필 이미지</h3>
+                      <p className={`mt-1 text-xs ${CONTENT_MUTED}`}>
+                        모델: {AI_PROFILE_IMAGE_MODEL_ID}
+                        {aiProfileImageOptions.aspectRatio ? ` · ${aiProfileImageOptions.aspectRatio}` : ''}
+                        {aiProfileImageOptions.imageSize ? ` · ${aiProfileImageOptions.imageSize}` : ''}
+                      </p>
+                    </div>
+                    <div className="group relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleGenerateExtraProfileImage}
+                        disabled={
+                          !profileImageStatus?.url ||
+                          !nextExtraProfileImageSlotId ||
+                          isExtraProfileImageGenerating ||
+                          extraProfileImageCount >= 5
+                        }
+                        className={`inline-flex items-center rounded-md px-3 py-1.5 text-xs ${BTN_EMPHASIS}`}
+                      >
+                        {isExtraProfileImageGenerating
+                          ? '프로필 외 이미지 생성 중...'
+                          : `프로필 외 이미지 생성하기 (${extraProfileImageCount}/5)`}
+                      </button>
+                      <div className="pointer-events-none absolute right-0 top-full z-20 mt-2 w-72 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                        <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-600 shadow-lg dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300">
+                          프로필과 동일 인물로, 다른 장면·의상·구도의 사진을 최대 5장까지 생성합니다.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {profileImageStatus?.isLoading && (
+                    <div className={`flex items-center justify-center py-12 ${CONTENT_MUTED}`}>
+                      <svg className="mr-3 h-6 w-6 animate-spin text-[#006B68]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      프로필 이미지 생성 중...
+                    </div>
+                  )}
+                  {profileImageStatus?.error && !profileImageStatus?.isLoading && (
+                    <p className="text-sm text-red-600 dark:text-red-400">{profileImageStatus.error}</p>
+                  )}
+                  {profileImageStatus?.url && !profileImageStatus?.isLoading && (
+                    <img
+                      src={profileImageStatus.url}
+                      alt="생성된 AI 프로필 이미지"
+                      className="mx-auto max-h-[640px] w-full rounded-lg object-contain"
+                    />
+                  )}
+                  {!profileImageStatus?.url && !profileImageStatus?.isLoading && !profileImageStatus?.error && (
+                    <p className={`py-8 text-center text-sm ${CONTENT_MUTED}`}>
+                      우측 상단 「프로필 이미지 생성하기」 버튼으로 영문 통합 프롬프트 기반 이미지를 생성할 수 있습니다.
+                    </p>
+                  )}
+
+                  {profileImageStatus?.url &&
+                    !profileImageStatus?.isLoading &&
+                    (extraProfileImageCount > 0 || isExtraProfileImageGenerating) && (
+                    <div className={`mt-4 border-t pt-4 ${CONTENT_DIVIDER}`}>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                          {AI_PROFILE_EXTRA_IMAGE_SLOT_IDS.map((slotId, index) => {
+                            const status = imageStatuses[slotId];
+                            if (!status?.url && !status?.isLoading && !status?.error) return null;
+                            return (
+                              <div key={slotId} className={`${CONTENT_CARD_MUTED} p-3`}>
+                                <p className={`mb-2 text-xs font-medium ${CONTENT_MUTED}`}>프로필 외 이미지 {index + 1}</p>
+                                {status?.isLoading && (
+                                  <div className="flex items-center justify-center py-10 text-sm text-gray-500">생성 중...</div>
+                                )}
+                                {status?.error && !status?.isLoading && (
+                                  <p className="text-xs text-red-600">{status.error}</p>
+                                )}
+                                {status?.url && !status?.isLoading && (
+                                  <img
+                                    src={status.url}
+                                    alt={`프로필 외 이미지 ${index + 1}`}
+                                    className="w-full rounded-md object-contain max-h-72"
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
               {renderedContent}
               {format !== 'AI-PROMPT' && (
-              <div className="mt-8 pt-6 border-t border-gray-200">
-                <h4 className="text-lg font-semibold text-gray-800 mb-3">
+              <div className={`mt-8 pt-6 border-t ${CONTENT_DIVIDER}`}>
+                <h4 className={`text-lg font-semibold mb-3 ${CONTENT_SUBTITLE}`}>
                   {isInfographicContent ? '연관 인포그래픽 주제 추천' : '연관 키워드 / 주제 추천'}
                 </h4>
                 {suggestions && suggestions.length > 0 ? (
@@ -3661,7 +3824,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                       <button
                         key={index}
                         onClick={() => onSuggestionClick(suggestion)}
-                        className={`${isInfographicContent ? 'w-full text-left' : ''} bg-gradient-to-r from-[#1FA77A] to-[#1FB88A] hover:from-[#1a8c68] hover:to-[#1a9d78] text-white font-medium py-2.5 px-5 rounded-full text-sm transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg`}
+                        className={`${isInfographicContent ? 'w-full text-left' : ''} py-2.5 px-5 rounded-full text-sm ${BTN_CHIP}`}
                       >
                         {suggestion}
                       </button>
@@ -3681,7 +3844,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                           <button
                             key={index}
                             onClick={() => onSuggestionClick(keyword)}
-                            className={`${isInfographicContent ? 'w-full text-left' : ''} bg-gradient-to-r from-[#1FA77A] to-[#1FB88A] hover:from-[#1a8c68] hover:to-[#1a9d78] text-white font-medium py-2.5 px-5 rounded-full text-sm transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg`}
+                            className={`${isInfographicContent ? 'w-full text-left' : ''} py-2.5 px-5 rounded-full text-sm ${BTN_CHIP}`}
                           >
                             {keyword}
                           </button>
@@ -3690,7 +3853,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                       
                       // 추천이 없을 때 (로딩 아님 — 잘못된 문구로 오해 방지)
                       return (
-                        <p className="text-gray-500 text-sm">
+                        <p className={`text-sm ${CONTENT_MUTED}`}>
                           {isInfographicContent
                             ? '이번 결과에는 연관 인포그래픽 주제 추천이 없습니다.'
                             : '이번 결과에는 연관 키워드·주제 추천이 없습니다. 다른 포맷이나 후속 제안이 포함된 응답에서는 버튼이 표시됩니다.'}
@@ -3703,16 +3866,16 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
               )}
                {/* 네이버 블로그 포맷이 아닐 때만 sources 표시 (네이버 블로그는 참고자료 섹션에 포함) */}
                {sources && sources.length > 0 && !isNaverBlogFormat && (
-                <div className="mt-8 pt-6 border-t border-gray-200">
-                    <h4 className="text-lg font-semibold text-gray-800 mb-3">AI가 참고한 자료</h4>
+                <div className={`mt-8 pt-6 border-t ${CONTENT_DIVIDER}`}>
+                    <h4 className={`text-lg font-semibold mb-3 ${CONTENT_SUBTITLE}`}>AI가 참고한 자료</h4>
                     <ul className="list-disc list-inside space-y-2">
                         {sources.map((source, index) => (
-                            <li key={index} className="text-gray-600">
+                            <li key={index} className={CONTENT_BODY}>
                                 <a 
                                     href={source.uri} 
                                     target="_blank" 
                                     rel="noopener noreferrer" 
-                                    className="text-blue-400 hover:text-blue-300 hover:underline"
+                                    className="text-blue-600 hover:text-blue-500 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
                                     title={source.uri}
                                 >
                                     {source.title}

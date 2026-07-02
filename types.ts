@@ -5,7 +5,7 @@ export type BannerDesignStyleId =
   | 'modern_illustration'
   | 'dynamic_sporty';
 
-export type AiPromptType = 'AI 인물';
+export type AiPromptType = '커스텀 생성하기' | '가상 프로필 생성하기';
 
 export type AiPromptAdditionalOption =
   | 'non_symmetrical_face'
@@ -76,6 +76,12 @@ export interface UserInput {
   aiPromptAdditionalOptions?: AiPromptAdditionalOption[];
   aiPromptRemoveAiEffect?: boolean;
   aiPromptCustomInput?: string;
+  /** 티샷 AI 가상회원 프로필 — 포즈·자세 */
+  aiPromptTeeshotPose?: string;
+  /** 티샷 AI 가상회원 프로필 — 뒷/옆/앞/3·4 측면 */
+  aiPromptTeeshotViewAngle?: string;
+  /** 티샷 AI 가상회원 프로필 — 카메라 거리·프레이밍 */
+  aiPromptTeeshotCameraDistance?: string;
 }
 
 export interface GeneratedContent {

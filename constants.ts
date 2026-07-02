@@ -28,11 +28,11 @@ export const BLOG_CATEGORIES = [
 export const FORMATS = ['INSTAGRAM-CARD', 'NAVER-BLOG/BAND', 'YOUTUBE-SHORTFORM', 'ETC-BANNER', 'AI-PROMPT'];
 
 export const FORMAT_LABELS: { [key: string]: string } = {
-  'INSTAGRAM-CARD': '인스타 카드',
-  'NAVER-BLOG/BAND': '네이버 블로그',
-  'YOUTUBE-SHORTFORM': '유튜브 숏폼',
-  'ETC-BANNER': '배너/포스터',
-  'AI-PROMPT': 'AI 프로필',
+  'INSTAGRAM-CARD': '인스타',
+  'NAVER-BLOG/BAND': '블로그',
+  'YOUTUBE-SHORTFORM': '유튜브',
+  'ETC-BANNER': '배너',
+  'AI-PROMPT': 'AI 인물',
 };
 
 /** AI 프로필 구글 스프레드시트 (Teeshot 컨텐츠 생성기_AI프로필 프롬프트) */
@@ -42,9 +42,28 @@ export const AI_PROFILE_SPREADSHEET_URL = `https://docs.google.com/spreadsheets/
 /** n8n 웹훅 — Google Sheets Append Row 워크플로와 연결 (`.env`의 VITE_AI_PROFILE_N8N_WEBHOOK_URL`) */
 export const AI_PROFILE_N8N_WEBHOOK_URL =
   (typeof process !== 'undefined' && process.env.VITE_AI_PROFILE_N8N_WEBHOOK_URL?.trim()) ||
-  'https://teeshot.app.n8n.cloud/webhook/a1053b39-6daa-4553-88d3-e567e051ceda';
+  'https://teeshot.app.n8n.cloud/webhook/ai-profile-spreadsheet';
 
-export const AI_PROMPT_TYPES = ['AI 인물'] as const;
+/** 개발 서버에서는 Vite 프록시 경유(CORS 회피), 배포/프리뷰는 .env URL 직접 호출 */
+export const resolveAiProfileN8nWebhookUrl = (): string => {
+  const configured = AI_PROFILE_N8N_WEBHOOK_URL.trim();
+  if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+    try {
+      const path = new URL(configured).pathname;
+      return `/api/ai-profile-n8n${path}`;
+    } catch {
+      return '/api/ai-profile-n8n/webhook/ai-profile-spreadsheet';
+    }
+  }
+  return configured;
+};
+
+export const AI_PROMPT_TYPES = ['커스텀 생성하기', '가상 프로필 생성하기'] as const;
+
+export const AI_PROMPT_TYPE_LABELS: Record<(typeof AI_PROMPT_TYPES)[number], string> = {
+  '커스텀 생성하기': 'custom profile generation',
+  '가상 프로필 생성하기': 'virtual member profile generation',
+};
 
 export const AI_PROMPT_NATIONALITY_OPTIONS = [
   { label: '한국인', value: 'Korean' },
@@ -128,10 +147,13 @@ export const AI_PROMPT_CAMERA_ANGLE_OPTIONS = [
 ];
 
 export const AI_PROMPT_BACKGROUND_OPTIONS = [
-  { label: '아름다운 클럽하우스 정원', value: 'Beautiful clubhouse garden' },
-  { label: '선명한 초록빛 퍼팅 그린', value: 'vibrant green putting green' },
-  { label: '나무 아래 그늘진 휴식 공간', value: 'shady rest area under a tree' },
-  { label: '골프장 드라이빙 레인지', value: 'golf course driving range' },
+  { label: '한국', value: 'golf course background in South Korea, typical Korean golf club atmosphere' },
+  { label: '일본', value: 'golf course background in Japan, typical Japanese golf club atmosphere' },
+  { label: '중국', value: 'golf course background in China, typical Chinese golf club atmosphere' },
+  { label: '동남아시아', value: 'golf course background in Southeast Asia, tropical golf club atmosphere' },
+  { label: '미국', value: 'golf course background in the United States, typical American golf club atmosphere' },
+  { label: '유럽', value: 'golf course background in Europe, typical European golf club atmosphere' },
+  { label: '배경 특정 없음', value: 'generic golf course background without a specific country' },
 ];
 
 export const AI_PROMPT_LIGHTING_OPTIONS = [
@@ -170,10 +192,172 @@ export const AI_PROMPT_PHOTO_STYLE_OPTIONS = [
   { label: '진짜 피부 디테일', value: 'authentic skin detail' },
 ];
 
+export const TEESHOT_MEMBER_POSE_OPTIONS = [
+  { label: '스윙', value: 'swing', promptEn: 'mid golf swing on the course' },
+  { label: '어드레스', value: 'address', promptEn: 'address posture over the ball on the tee or fairway' },
+  { label: '퍼팅', value: 'putting', promptEn: 'putting stance on the green' },
+  { label: '스윙 준비', value: 'setup', promptEn: 'preparing to swing, backswing setup on the tee box' },
+  { label: '페어웨이 걷기', value: 'walking_fairway', promptEn: 'walking casually on the fairway with a club' },
+  { label: '티박스 대기', value: 'tee_waiting', promptEn: 'waiting on the tee box before a shot' },
+  { label: '그린 바라보기', value: 'looking_green', promptEn: 'holding a club and looking toward the green' },
+  { label: '카트 패스 대기', value: 'cart_path', promptEn: 'standing near the cart path between holes' },
+  { label: '벙커 옆', value: 'bunker_practice', promptEn: 'standing beside an on-course sand bunker on the fairway or near the green' },
+  { label: '클럽 정리', value: 'adjusting_glove', promptEn: 'casually adjusting a golf glove or grip on the tee box' },
+] as const;
+
+export const TEESHOT_MEMBER_VIEW_OPTIONS = [
+  { label: '뒷모습', value: 'back', promptEn: 'back view, face not visible or mostly hidden' },
+  { label: '옆모습', value: 'side', promptEn: 'side profile view' },
+  { label: '앞모습', value: 'front', promptEn: 'front-facing view toward the camera' },
+  { label: '3/4 측면', value: 'three_quarter', promptEn: 'three-quarter angle view' },
+] as const;
+
+export const TEESHOT_CAMERA_DISTANCE_METERS = [1, 5, 10, 20, 40, 80, 160, 320, 640] as const;
+export const TEESHOT_DEFAULT_CAMERA_DISTANCE = '160m';
+/** 이 거리 이상이면 멀리서 전신 CRITICAL 프레이밍 블록 적용 */
+export const TEESHOT_FAR_DISTANCE_MIN_METERS = 160;
+
+export const parseTeeshotCameraDistanceMeters = (value: string | undefined): number => {
+  if (!value?.trim()) return parseInt(TEESHOT_DEFAULT_CAMERA_DISTANCE, 10);
+  if (value === 'far_full_body') return TEESHOT_FAR_DISTANCE_MIN_METERS;
+  const match = value.trim().match(/^(\d+)m$/i);
+  if (match) {
+    const parsed = parseInt(match[1], 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return parseInt(TEESHOT_DEFAULT_CAMERA_DISTANCE, 10);
+};
+
+export const formatTeeshotCameraDistanceValue = (meters: number): string => `${meters}m`;
+
+export const isTeeshotFarCameraDistance = (meters: number): boolean =>
+  meters >= TEESHOT_FAR_DISTANCE_MIN_METERS;
+
+const TEESHOT_CAMERA_DISTANCE_NEGATIVE =
+  'NOT close-up, NOT portrait mode, NOT head-and-shoulders crop, NOT subject filling most of the frame, NOT telephoto compression, NOT 85mm portrait lens look.';
+
+export const parseTeeshotCameraDistanceFromDetail = (detailValue?: string): number | null => {
+  if (!detailValue?.trim()) return null;
+  const match = detailValue.match(/(\d+)m/i);
+  if (match) {
+    const parsed = parseInt(match[1], 10);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  if (detailValue.includes('멀리서') || /very far camera distance/i.test(detailValue)) {
+    return TEESHOT_FAR_DISTANCE_MIN_METERS;
+  }
+  return null;
+};
+
+export const buildTeeshotCameraDistanceImageEnforcement = (meters: number): string => {
+  if (meters >= 320) {
+    return `CRITICAL — camera distance (MUST apply; non-negotiable):
+Shoot from approximately ${meters} meters away. Extreme wide environmental golf course shot — golfer tiny in frame (~5–12% of frame height max), vast fairway/trees/sky dominate. ${TEESHOT_CAMERA_DISTANCE_NEGATIVE}`;
+  }
+  if (meters >= TEESHOT_FAR_DISTANCE_MIN_METERS) {
+    return `CRITICAL — camera distance (MUST apply; non-negotiable):
+Shoot from approximately ${meters} meters away. Very wide on-course shot — golfer small in frame (~15–25% of frame height max), full body head-to-toe with large course surroundings. If the golfer fills more than one-third of frame height, the shot is TOO CLOSE — pull the camera back further. ${TEESHOT_CAMERA_DISTANCE_NEGATIVE}`;
+  }
+  if (meters >= 80) {
+    return `CRITICAL — camera distance (MUST apply; non-negotiable):
+Shoot from approximately ${meters} meters away. Wide amateur phone snapshot on the fairway or tee — golfer must occupy only ~25–35% of frame height MAX, full body visible head-to-toe with clearly visible fairway, trees, and sky around them. The photographer stands far back on the course. If the golfer fills half the frame or more, the shot is WRONG — pull the camera much farther back. ${TEESHOT_CAMERA_DISTANCE_NEGATIVE}`;
+  }
+  if (meters >= 40) {
+    return `CRITICAL — camera distance (MUST apply; non-negotiable):
+Shoot from approximately ${meters} meters away. Full body head-to-toe with moderate course context — golfer ~35–45% of frame height. ${TEESHOT_CAMERA_DISTANCE_NEGATIVE}`;
+  }
+  if (meters >= 20) {
+    return `CRITICAL — camera distance (MUST apply; non-negotiable):
+Shoot from approximately ${meters} meters away. Full-body dominant framing — golfer ~45–55% of frame height. Still show on-course background context. ${TEESHOT_CAMERA_DISTANCE_NEGATIVE}`;
+  }
+  if (meters >= 10) {
+    return `CRITICAL — camera distance (MUST apply; non-negotiable):
+Shoot from approximately ${meters} meters away. Three-quarter to full body — golfer ~55–70% of frame height. Amateur phone snapshot, not studio portrait.`;
+  }
+  return `CRITICAL — camera distance (MUST apply; non-negotiable):
+Shoot from approximately ${meters} meters away. Very close amateur phone shot — upper body or tight full-body framing (~70–90% of frame height).`;
+};
+
+export const TEESHOT_CAMERA_DISTANCE_IMAGE_PRIORITY_HEADER = `HIGHEST PRIORITY — CAMERA DISTANCE (mandatory; overrides portrait zoom / close framing bias in all other instructions):`;
+
+export const buildTeeshotCameraDistanceImagePreamble = (meters: number): string =>
+  [TEESHOT_CAMERA_DISTANCE_IMAGE_PRIORITY_HEADER, buildTeeshotCameraDistanceImageEnforcement(meters)].join(
+    '\n'
+  );
+
+export const buildTeeshotCameraDistanceImageFinalReminder = (meters: number): string =>
+  `FINAL CHECK — camera distance: the result MUST match ~${meters}m shooting distance. If the golfer looks closer than this setting, the image is wrong — re-frame farther back.`;
+
+export const buildTeeshotCameraDistancePromptEn = (meters: number): string => {
+  if (meters >= 320) {
+    return `Approximately ${meters} meters — extreme wide environmental shot, golfer tiny in frame (~5–12% height).`;
+  }
+  if (meters >= TEESHOT_FAR_DISTANCE_MIN_METERS) {
+    return `Approximately ${meters} meters — very wide shot, golfer small (~15–25% frame height), full body with large course surroundings.`;
+  }
+  if (meters >= 80) {
+    return `Approximately ${meters} meters — wide fairway/tee snapshot, golfer ~25–35% frame height max, full body with visible course around them. NOT close-up.`;
+  }
+  if (meters >= 40) {
+    return `Approximately ${meters} meters — full body with moderate course context (~35–45% frame height).`;
+  }
+  if (meters >= 20) {
+    return `Approximately ${meters} meters — full-body dominant (~45–55% frame height).`;
+  }
+  if (meters >= 10) {
+    return `Approximately ${meters} meters — three-quarter to full body (~55–70% frame height).`;
+  }
+  return `Approximately ${meters} meters — very close upper body or tight full body.`;
+};
+
+export const TEESHOT_MEMBER_CAMERA_DISTANCE_OPTIONS = TEESHOT_CAMERA_DISTANCE_METERS.map((meters) => ({
+  label: `${meters}m`,
+  value: formatTeeshotCameraDistanceValue(meters),
+  promptEn: buildTeeshotCameraDistancePromptEn(meters),
+}));
+
+export const TEESHOT_GOLF_BRAND_LOGO_REQUIREMENT =
+  'Wardrobe requirement: The person must wear golf apparel with visible, realistic golf brand logos on the clothing they are wearing (e.g. small embroidered logos on polo shirt, cap, visor, windbreaker, or outerwear). Logos should look like authentic amateur golf wear branding, not luxury fashion editorial mockups.';
+
+export const TEESHOT_VIRTUAL_MEMBER_SNAPSHOT_MANDATORY = `MANDATORY smartphone snapshot rules (always apply for TeeShot virtual member profile):
+- Deep depth of field: BOTH the person AND the background must stay sharp and in focus, like a phone wide-angle camera at f/8–f/11. No portrait mode, no background blur, no bokeh, no subject-background separation, no isolated sharp subject on blurred course.
+- Exposure & tone: flat, dull, natural outdoor light. Low to moderate contrast only — slightly washed or hazy is OK. No punchy contrast, no HDR, no crushed blacks, no blown highlights, no glossy commercial polish, no cinematic grading.
+- Camera feel: ordinary amateur phone snapshot from a golf app profile — NOT DSLR, NOT mirrorless portrait lens, NOT studio or influencer quality.`;
+
+export const TEESHOT_VIRTUAL_MEMBER_COURSE_BACKGROUND_ONLY = `MANDATORY background — outdoor golf course field ONLY:
+- Setting must be a real outdoor golf course: fairway, tee box, green, rough, on-course sand bunker, trees, pond, hill, cart path on the course, open sky, natural grass and landscape.
+- NEVER use: driving range, practice range, indoor golf simulator, indoor studio, practice mat bay, netted hitting area, rooftop range, clubhouse interior, locker room, pro shop, café, any indoor room, any facility with walls or posted signs.
+- The background must contain NO readable text, NO signs, NO banners, NO scoreboards, NO yardage boards, NO advertisements, NO logos on structures — only natural outdoor course scenery (grass, trees, sky, sand, water).
+- Do NOT produce smeared blank patches, blurred-out lettering, or empty rectangles where signs were erased — avoid any background element that would normally have text.`;
+
+export const TEESHOT_VIRTUAL_MEMBER_FAR_DISTANCE_ENFORCEMENT = `CRITICAL framing for far full-body shot:
+The camera must be VERY FAR from the subject. The golfer should look relatively small in the frame with plenty of golf course visible around them. Wide shot across the fairway or tee — full body head to toe with generous margin. If the person fills more than one-third of the frame height, the shot is TOO CLOSE — pull the camera back further.`;
+
+export const TEESHOT_VIRTUAL_MEMBER_ANTI_POLISH_NEGATIVE = `(Negative — avoid polished AI/portrait look): shallow depth of field, strong background bokeh, blurred background, out-of-focus background, portrait mode blur, subject-background separation, isolated subject with sharp focus on person only, professional DSLR or mirrorless look, 85mm portrait lens, telephoto compression, studio photography, commercial ad quality, beauty filter, airbrushed skin, hyper-sharp detail, ultra-crisp clarity, punchy high contrast, high contrast, HDR, over-saturated colors, cinematic color grading, luxury fashion editorial, influencer photoshoot, perfectly staged composition, flawless model face, glossy retouching, vivid saturated greens, overly bright exposure, driving range, practice range, indoor golf, golf simulator room, practice mat bay, netted hitting cage, clubhouse interior, readable text in background, signs, banners, advertisements, smeared blank signage, erased text patches, empty white boards.`;
+
+export const TEESHOT_VIRTUAL_MEMBER_PROFILE_STYLE = `Style requirement: Generate a natural, casual golf course profile photo that looks like it was taken by an ordinary person with a smartphone, not a professional portrait. The image should feel like a real member photo from a golf app or social profile — slightly imperfect, not a well-shot photo.
+
+The person may be shown from the back, side, 3/4 angle, or at a distance. The face does not need to be clearly visible. Avoid perfect facial symmetry, studio-like posing, fashion-model appearance, or overly polished portrait lighting.
+
+Use realistic on-course outdoor situations ONLY: standing on a tee box, preparing to swing on the fairway, walking on the fairway, holding a club on the green, looking toward the green, waiting on a cart path between holes, standing near an on-course pond, sand bunker, trees, rough, hill, or under a cloudy open sky. Never indoors or at a practice facility.
+
+Lighting should be imperfect and natural: cloudy daylight, slightly flat lighting, mild backlight, uneven shadows, ordinary outdoor exposure, slight overcast sky, or casual midday sunlight. Do not use cinematic golden-hour lighting, dramatic rim light, perfect skin lighting, or glossy commercial photography.
+
+Wardrobe should look like normal amateur golf wear, not luxury fashion editorial styling. Natural golf outfits, caps, gloves, polo shirts, windbreakers, skirts, pants, golf shoes, or casual accessories are acceptable.
+
+Avoid AI-generated perfection: no flawless model-like face, no hyper-detailed skin, no fantasy lighting, no luxury ad mood, no overly clean background, no perfectly staged pose, no cinematic color grading, no professional portrait photography feeling, no influencer-quality polish.
+
+Overall mood: realistic amateur golfer, everyday golf round, ordinary golf club member profile image, casual and believable — like a friend took the photo quickly on a phone.`;
+
+/** AI 효과 제거 ON 시 — 스타일·조명·안티폴리시는 AI effect removal 블록에 위임 */
+export const TEESHOT_VIRTUAL_MEMBER_PROFILE_STYLE_COMPACT = `On-course golf member photo only (tee, fairway, green, rough, bunker, cart path). Back/side/distance views OK; face optional. Natural amateur golf wear.`;
+
 export const AI_PROMPT_ADDITIONAL_OPTIONS: ReadonlyArray<{
   id: AiPromptAdditionalOption;
   label: string;
   prompt: string;
+  /** true면 통합 프롬프트 본문 뒤에 단락으로 붙임 */
+  appendAsParagraph?: boolean;
 }> = [
   {
     id: 'non_symmetrical_face',
@@ -182,8 +366,8 @@ export const AI_PROMPT_ADDITIONAL_OPTIONS: ReadonlyArray<{
   },
   {
     id: 'specific_device',
-    label: 'Specific Device: 렌즈 특유의 왜곡이나 질감 반영',
-    prompt: 'specific device rendering, lens-specific distortion and texture',
+    label: 'Specific Device: 일반 스마트폰 카메라 질감',
+    prompt: 'ordinary smartphone camera rendering, flat amateur phone photo texture, no corner darkening',
   },
   {
     id: 'imperfections',
@@ -192,11 +376,73 @@ export const AI_PROMPT_ADDITIONAL_OPTIONS: ReadonlyArray<{
   },
 ];
 
+export const AI_EFFECT_REMOVAL_BUNDLED_REALISM_PROMPT = AI_PROMPT_ADDITIONAL_OPTIONS.map(
+  (option) => option.prompt
+).join(', ');
+
+export const AI_EFFECT_REMOVAL_BUNDLED_LABELS_KO = AI_PROMPT_ADDITIONAL_OPTIONS.map(
+  (option) => option.label
+).join(', ');
+
+export const AI_EFFECT_REMOVAL_MANDATORY_COMPOSITION = `CRITICAL — composition (MUST apply; non-negotiable when AI effect removal is on):
+The photo MUST use deliberately asymmetric, unbalanced framing — subject off-center, uneven headroom or foot room, awkward crop, NOT centered or rule-of-thirds perfect. The photo MUST look hand-held with NO image stabilization — slight dutch angle / tilted horizon (about 2–8 degrees). Mild hand-shake micro-blur is OK. Never perfectly level, never symmetric, never tripod-straight, never gimbal-smooth.`;
+
+export const AI_EFFECT_REMOVAL_MANDATORY_EXPOSURE = `CRITICAL — exposure & lighting (MUST apply; non-negotiable when AI effect removal is on):
+Overall image slightly darker than ideal — under-exposed or poorly metered, like the photographer mis-set smartphone exposure. Awkward global brightness: flat dull tones, mild backlight blow-out, wrong white balance feel. Low contrast, faded colors. NOT bright, NOT professionally exposed.
+NO vignette, NO dark corners, NO edge darkening, NO radial falloff — brightness must stay even from center to all four corners like a flat phone snapshot, not a filter or vintage lens look.`;
+
+/** @deprecated use AI_EFFECT_REMOVAL_MANDATORY_COMPOSITION — kept for image-gen import compatibility */
+export const AI_EFFECT_REMOVAL_MANDATORY_TILT_SHAKE = AI_EFFECT_REMOVAL_MANDATORY_COMPOSITION;
+
+export const AI_EFFECT_REMOVAL_AMATEUR_SNAPSHOT_PROMPT =
+  'Raw amateur smartphone snapshot: natural unposed golf course background, deep depth of field with subject and background both in focus, realistic film grain, no AI perfection, no commercial polish.';
+
+export const AI_EFFECT_REMOVAL_KOREAN_SNAPSHOT_RULES =
+  '스마트폰 스냅샷 느낌(배경·인물 모두 초점, 배경 아웃포커싱·보케·과선명·고대비 금지)';
+
+export const AI_EFFECT_REMOVAL_IMAGE_PRIORITY_HEADER = `HIGHEST PRIORITY — AI EFFECT REMOVAL (mandatory visual style; overrides polished portrait, studio lighting, commercial ad, influencer shoot, and AI-art cues anywhere in this prompt):
+The output MUST look like a casual amateur smartphone photo taken quickly by a regular person — slightly imperfect, never a professional headshot or glossy AI render.`;
+
+export const AI_EFFECT_REMOVAL_IMAGE_FINAL_REMINDER = `FINAL IMAGE CHECK — AI effect removal (non-negotiable before finishing):
+Confirm the result has: off-center asymmetric crop with dutch tilt (2–8°), hand-held micro-shake feel, globally slightly too dark / wrong phone exposure, flat low-contrast faded tone, visible skin imperfections (pores, fine wrinkles, stray hairs), deep depth of field (subject AND background sharp), NO background blur or bokeh, NO studio lighting, NO symmetric centered composition, NO glossy AI polish, NO vignette or dark corners.`;
+
+/** @deprecated use buildAiEffectRemovalImageEnforcement */
+export const AI_EFFECT_REMOVAL_IMAGE_PREAMBLE = [
+  AI_EFFECT_REMOVAL_MANDATORY_COMPOSITION,
+  AI_EFFECT_REMOVAL_MANDATORY_EXPOSURE,
+].join('\n\n');
+
+export const buildAiEffectRemovalEnglishBlock = (options?: {
+  includeTeeshotSnapshotRules?: boolean;
+}): string =>
+  [
+    options?.includeTeeshotSnapshotRules ? TEESHOT_VIRTUAL_MEMBER_SNAPSHOT_MANDATORY : '',
+    AI_EFFECT_REMOVAL_MANDATORY_COMPOSITION,
+    AI_EFFECT_REMOVAL_MANDATORY_EXPOSURE,
+    options?.includeTeeshotSnapshotRules ? '' : AI_EFFECT_REMOVAL_AMATEUR_SNAPSHOT_PROMPT,
+    AI_EFFECT_REMOVAL_BUNDLED_REALISM_PROMPT,
+    `(Positive Suffix): ${AI_EFFECT_REMOVAL_POSITIVE_SUFFIX}`,
+    `(Negative Prompt): ${AI_EFFECT_REMOVAL_NEGATIVE_PROMPT}`,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+/** 프로필 이미지 생성 시 AI 효과 제거를 텍스트 프롬프트보다 강하게 주입 */
+export const buildAiEffectRemovalImageEnforcement = (options?: {
+  includeTeeshotSnapshotRules?: boolean;
+}): string =>
+  [
+    AI_EFFECT_REMOVAL_IMAGE_PRIORITY_HEADER,
+    buildAiEffectRemovalEnglishBlock(options),
+  ].join('\n\n');
+
+export const AI_EFFECT_REMOVAL_KOREAN_SUMMARY = `AI 효과 제거 적용 — ${AI_EFFECT_REMOVAL_BUNDLED_LABELS_KO}, ${AI_EFFECT_REMOVAL_KOREAN_SNAPSHOT_RULES}, 비대칭·기울어진 구도·손떨림(필수), 전체적으로 약간 어둡고 노출 실패한 어색한 밝기`;
+
 export const AI_EFFECT_REMOVAL_POSITIVE_SUFFIX =
-  '... highly authentic, micro-skin details, non-perfect skin, real-world physics, accidental background details, natural lens distortion, cinematic but unpolished, 8k raw photo, accidental lighting artifacts, high dynamic range with realistic shadows.';
+  '... highly authentic, micro-skin details, non-perfect skin, real-world physics, accidental background details, unpolished raw photo, accidental lighting artifacts, slightly under-exposed overall tone, uneven amateur exposure, even corner-to-corner brightness without vignette.';
 
 export const AI_EFFECT_REMOVAL_NEGATIVE_PROMPT =
-  '... (airbrushed, plastic, smooth skin, symmetrical face, fake smile, fashion model pose, studio lighting:1.4), (CGI, 3D render, cartoon, digital art:1.2), (over-saturated, high contrast, heavy filters), (extra limbs, deformed fingers, floating objects), (perfectly white teeth, anime eyes).';
+  '... (vignette, dark corners, edge darkening, radial darkening, corner shadows, lens vignetting, black corners:1.5), (airbrushed, plastic, smooth skin, symmetrical face, symmetric centered composition, perfectly balanced exposure, bright even lighting, fake smile, fashion model pose, studio lighting:1.4), (CGI, 3D render, cartoon, digital art:1.2), (over-saturated, high contrast, heavy filters, HDR, professionally exposed), (extra limbs, deformed fingers, floating objects), (perfectly white teeth, anime eyes).';
 
 export const BLOG_LENGTHS = [
   { value: 500, label: '500자' },
@@ -872,7 +1118,7 @@ export const SYSTEM_PROMPT = `
 브랜드: 실용·감성·신뢰, 현실적 대화체, 과장 금지
 톤앤매너: 친근하고 부드러운 말투 (~해요, ~에요, ~할까요, ~드려요)
 컨텐츠 원칙: **추상적 표현 없이 구체적 수치·방법·실명 필수**
-이미지: 자연광, 미니멀, 실루엣, TeeShot Green #004B49
+이미지: 자연광, 미니멀, 실루엣, TeeShot Green #006B68
 **이미지 프롬프트 생성 규칙: 
 1. 사람이 포함된 이미지 프롬프트를 생성할 때는 반드시 동양인(Asian, East Asian, Korean, Japanese, Chinese 등)을 기본으로 하세요. 서양인(Caucasian, Western 등)은 명시적으로 요청하지 않는 한 사용하지 마세요.
 2. 절대 금지: 이미지 프롬프트에 TEESHOT, TeeShot, 티샷 등의 로고, 브랜드명을 절대 포함하지 마세요.**
@@ -1358,7 +1604,7 @@ export const SYSTEM_PROMPT = `
 - 텍스트 가독성 최우선(명암 대비, 위계, 패널·외곽선 활용)
 - **타이포 위계·컴포넌트**: 헤드라인·서브·본문·CTA가 디자인상 구분되게(박스·뱃지·버튼형 등). 본문은 행간·문단 여백을 충분히.
 - 시각은 일러스트·그래픽 위주, 실사 사진은 최소화
-- 브랜드 컬러 활용 (TeeShot Green #004B49)
+- 브랜드 컬러 활용 (TeeShot Green #006B68)
 - 시각적 계층 구조
 - 모바일/데스크톱 반응형 고려
 

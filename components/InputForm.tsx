@@ -1,20 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { UserInput, AiPromptAdditionalOption } from '../types';
+import type { UserInput } from '../types';
 
 type BannerContentType = NonNullable<UserInput['bannerContentType']>;
 import {
-  AI_PROMPT_ADDITIONAL_OPTIONS,
   AI_PROMPT_BACKGROUND_OPTIONS,
-  AI_PROMPT_CAMERA_ANGLE_OPTIONS,
-  AI_PROMPT_CAMERA_LENS_OPTIONS,
-  AI_PROMPT_CLOTHING_COLOR_OPTIONS,
-  AI_PROMPT_CLOTHING_OPTIONS,
   AI_PROMPT_GENDER_OPTIONS,
-  AI_PROMPT_HAIR_OPTIONS,
-  AI_PROMPT_LIGHTING_OPTIONS,
   AI_PROMPT_NATIONALITY_OPTIONS,
-  AI_PROMPT_PHOTO_STYLE_OPTIONS,
-  AI_PROMPT_SKIN_OPTIONS,
   AI_PROMPT_TYPES,
   ASPECT_RATIOS,
   BLOG_CATEGORIES,
@@ -24,6 +15,10 @@ import {
   CATEGORY_KEYWORDS,
   FORMAT_LABELS,
   FORMATS,
+  TEESHOT_MEMBER_CAMERA_DISTANCE_OPTIONS,
+  TEESHOT_MEMBER_POSE_OPTIONS,
+  TEESHOT_MEMBER_VIEW_OPTIONS,
+  TEESHOT_DEFAULT_CAMERA_DISTANCE,
   TONES,
   VIDEO_LENGTHS,
 } from '../constants';
@@ -57,24 +52,143 @@ const BANNER_CONTENT_TYPE_OPTIONS: { value: BannerContentType; label: string }[]
 ];
 
 const AI_PROMPT_CUSTOM_VALUE = '__custom__';
+const AI_PROMPT_RANDOM_VALUE = '__random__';
+const AI_PROMPT_RANDOM_LABEL = '랜덤';
 
-const AI_PROMPT_RANDOM_AGES = ['26세', '28세', '31세', '34세', '37세', '41세', '45세'];
-const AI_PROMPT_RANDOM_ACTIONS_EN = [
-  'realistic golf follow-through after a clean iron shot',
-  'candid moment adjusting a golf glove on the tee box',
-  'focused putting stance on a practice green',
-  'walking casually with a golf bag along the cart path',
-  'modest fist pump after sinking a medium-length putt',
-  'checking yardage on a wristwatch before an approach shot',
-];
+const AI_PROMPT_AGE_OPTIONS = Array.from({ length: 41 }, (_, index) => {
+  const age = String(index + 20);
+  return { label: `${age}세`, value: age };
+});
+
+const randomAiPromptAge = (): string =>
+  String(Math.floor(Math.random() * (60 - 20 + 1)) + 20);
 
 const pickAiPromptSelectValue = (options: ReadonlyArray<{ value: string }>) => {
-  const pool = options.filter((o) => o.value !== AI_PROMPT_CUSTOM_VALUE);
+  const pool = options.filter(
+    (o) => o.value !== AI_PROMPT_CUSTOM_VALUE && o.value !== AI_PROMPT_RANDOM_VALUE
+  );
   return pool[Math.floor(Math.random() * pool.length)]!.value;
 };
 
-const randomAiPromptAdditionalIds = (): AiPromptAdditionalOption[] =>
-  AI_PROMPT_ADDITIONAL_OPTIONS.map((o) => o.id).filter(() => Math.random() < 0.45);
+const pickRandomAspectRatio = () =>
+  ASPECT_RATIOS[Math.floor(Math.random() * ASPECT_RATIOS.length)]!.value;
+
+const pickRandomAiPromptType = (): UserInput['aiPromptType'] =>
+  AI_PROMPT_TYPES[Math.floor(Math.random() * AI_PROMPT_TYPES.length)]!;
+
+const pickRandomTeeshotOption = (options: ReadonlyArray<{ value: string }>) =>
+  options[Math.floor(Math.random() * options.length)]!.value;
+
+type AiProfileFormSnapshot = {
+  aspectRatio: string;
+  aiPromptType: string;
+  aiPromptNationality: string;
+  aiPromptGender: string;
+  aiPromptAge: string;
+  aiPromptAgeCustom: string;
+  aiPromptBackground: string;
+  aiPromptNationalityCustom: string;
+  aiPromptGenderCustom: string;
+  aiPromptBackgroundCustom: string;
+  aiPromptRemoveAiEffect: boolean;
+  aiPromptTeeshotPose: string;
+  aiPromptTeeshotViewAngle: string;
+  aiPromptTeeshotCameraDistance: string;
+};
+
+type ResolvedAiProfileForm = {
+  aspectRatio: string;
+  aiPromptType: UserInput['aiPromptType'];
+  aiPromptNationality: string;
+  aiPromptGender: string;
+  aiPromptAge: string;
+  aiPromptBackground: string;
+  aiPromptRemoveAiEffect: boolean;
+  aiPromptTeeshotPose?: string;
+  aiPromptTeeshotViewAngle?: string;
+  aiPromptTeeshotCameraDistance?: string;
+};
+
+const isAiPromptRandomValue = (value: string) => value === AI_PROMPT_RANDOM_VALUE;
+
+const resolveAiPromptSelectField = (
+  value: string,
+  customValue: string,
+  options: ReadonlyArray<{ value: string }>
+): string => {
+  if (isAiPromptRandomValue(value)) return pickAiPromptSelectValue(options);
+  if (value === AI_PROMPT_CUSTOM_VALUE) return customValue.trim();
+  return value;
+};
+
+const resolveAiProfileForm = (form: AiProfileFormSnapshot): ResolvedAiProfileForm => {
+  const aiPromptType = isAiPromptRandomValue(form.aiPromptType ?? '')
+    ? pickRandomAiPromptType()
+    : form.aiPromptType!;
+  const virtualProfile = aiPromptType === '가상 프로필 생성하기';
+
+  const aiPromptAge = isAiPromptRandomValue(form.aiPromptAge)
+    ? randomAiPromptAge()
+    : form.aiPromptAge === AI_PROMPT_CUSTOM_VALUE
+      ? form.aiPromptAgeCustom.trim() || randomAiPromptAge()
+      : form.aiPromptAge.trim();
+
+  const aiPromptRemoveAiEffect = form.aiPromptRemoveAiEffect;
+
+  return {
+    aspectRatio: isAiPromptRandomValue(form.aspectRatio) ? pickRandomAspectRatio() : form.aspectRatio,
+    aiPromptType,
+    aiPromptNationality: resolveAiPromptSelectField(
+      form.aiPromptNationality,
+      form.aiPromptNationalityCustom,
+      AI_PROMPT_NATIONALITY_OPTIONS
+    ),
+    aiPromptGender: resolveAiPromptSelectField(
+      form.aiPromptGender,
+      form.aiPromptGenderCustom,
+      AI_PROMPT_GENDER_OPTIONS
+    ),
+    aiPromptAge,
+    aiPromptBackground: resolveAiPromptSelectField(
+      form.aiPromptBackground,
+      form.aiPromptBackgroundCustom,
+      AI_PROMPT_BACKGROUND_OPTIONS
+    ),
+    aiPromptRemoveAiEffect,
+    aiPromptTeeshotPose: virtualProfile
+      ? isAiPromptRandomValue(form.aiPromptTeeshotPose)
+        ? pickRandomTeeshotOption(TEESHOT_MEMBER_POSE_OPTIONS)
+        : form.aiPromptTeeshotPose
+      : undefined,
+    aiPromptTeeshotViewAngle: virtualProfile
+      ? isAiPromptRandomValue(form.aiPromptTeeshotViewAngle)
+        ? pickRandomTeeshotOption(TEESHOT_MEMBER_VIEW_OPTIONS)
+        : form.aiPromptTeeshotViewAngle
+      : undefined,
+    aiPromptTeeshotCameraDistance: virtualProfile
+      ? isAiPromptRandomValue(form.aiPromptTeeshotCameraDistance)
+        ? pickRandomTeeshotOption(TEESHOT_MEMBER_CAMERA_DISTANCE_OPTIONS)
+        : form.aiPromptTeeshotCameraDistance
+      : undefined,
+  };
+};
+
+const buildAiProfileFormSnapshot = (form: {
+  aspectRatio: string;
+  aiPromptType: string;
+  aiPromptNationality: string;
+  aiPromptGender: string;
+  aiPromptAge: string;
+  aiPromptAgeCustom: string;
+  aiPromptBackground: string;
+  aiPromptNationalityCustom: string;
+  aiPromptGenderCustom: string;
+  aiPromptBackgroundCustom: string;
+  aiPromptRemoveAiEffect: boolean;
+  aiPromptTeeshotPose: string;
+  aiPromptTeeshotViewAngle: string;
+  aiPromptTeeshotCameraDistance: string;
+}): AiProfileFormSnapshot => ({ ...form });
 
 export const InputForm: React.FC<InputFormProps> = ({
   onGenerate,
@@ -128,34 +242,65 @@ export const InputForm: React.FC<InputFormProps> = ({
   /** 배너 배경(Nano Banana) 참고용 예시 이미지 — 디자인만 참고, 텍스트는 UI에서 합성 */
   const [bannerDesignReferenceFile, setBannerDesignReferenceFile] = useState<File | null>(null);
   const [bannerDesignReferenceObjectUrl, setBannerDesignReferenceObjectUrl] = useState<string | null>(null);
-  const [aiPromptType, setAiPromptType] = useState<UserInput['aiPromptType']>(AI_PROMPT_TYPES[0]);
+  const [aiPromptType, setAiPromptType] = useState<string>(AI_PROMPT_TYPES[0]);
   const [aiPromptNationality, setAiPromptNationality] = useState(AI_PROMPT_NATIONALITY_OPTIONS[0].value);
   const [aiPromptGender, setAiPromptGender] = useState(AI_PROMPT_GENDER_OPTIONS[0].value);
   const [aiPromptAge, setAiPromptAge] = useState('34');
-  const [aiPromptHair, setAiPromptHair] = useState(AI_PROMPT_HAIR_OPTIONS[0].value);
-  const [aiPromptSkin, setAiPromptSkin] = useState(AI_PROMPT_SKIN_OPTIONS[0].value);
-  const [aiPromptClothing, setAiPromptClothing] = useState(AI_PROMPT_CLOTHING_OPTIONS[0].value);
-  const [aiPromptClothingColor, setAiPromptClothingColor] = useState(AI_PROMPT_CLOTHING_COLOR_OPTIONS[0].value);
-  const [aiPromptActionPose, setAiPromptActionPose] = useState('');
-  const [aiPromptCameraAngle, setAiPromptCameraAngle] = useState(AI_PROMPT_CAMERA_ANGLE_OPTIONS[0].value);
+  const [aiPromptAgeCustom, setAiPromptAgeCustom] = useState('');
   const [aiPromptBackground, setAiPromptBackground] = useState(AI_PROMPT_BACKGROUND_OPTIONS[0].value);
-  const [aiPromptLighting, setAiPromptLighting] = useState(AI_PROMPT_LIGHTING_OPTIONS[0].value);
-  const [aiPromptCamera, setAiPromptCamera] = useState(AI_PROMPT_CAMERA_LENS_OPTIONS[0].value);
-  const [aiPromptPhotoStyle, setAiPromptPhotoStyle] = useState(AI_PROMPT_PHOTO_STYLE_OPTIONS[0].value);
   const [aiPromptNationalityCustom, setAiPromptNationalityCustom] = useState('');
   const [aiPromptGenderCustom, setAiPromptGenderCustom] = useState('');
-  const [aiPromptHairCustom, setAiPromptHairCustom] = useState('');
-  const [aiPromptSkinCustom, setAiPromptSkinCustom] = useState('');
-  const [aiPromptClothingCustom, setAiPromptClothingCustom] = useState('');
-  const [aiPromptClothingColorCustom, setAiPromptClothingColorCustom] = useState('');
-  const [aiPromptCameraAngleCustom, setAiPromptCameraAngleCustom] = useState('');
   const [aiPromptBackgroundCustom, setAiPromptBackgroundCustom] = useState('');
-  const [aiPromptLightingCustom, setAiPromptLightingCustom] = useState('');
-  const [aiPromptCameraCustom, setAiPromptCameraCustom] = useState('');
-  const [aiPromptPhotoStyleCustom, setAiPromptPhotoStyleCustom] = useState('');
-  const [aiPromptAdditionalOptions, setAiPromptAdditionalOptions] = useState<NonNullable<UserInput['aiPromptAdditionalOptions']>>([]);
   const [aiPromptRemoveAiEffect, setAiPromptRemoveAiEffect] = useState(false);
   const [aiPromptCustomInput, setAiPromptCustomInput] = useState('');
+  const [aiPromptTeeshotPose, setAiPromptTeeshotPose] = useState(TEESHOT_MEMBER_POSE_OPTIONS[0].value);
+  const [aiPromptTeeshotViewAngle, setAiPromptTeeshotViewAngle] = useState(TEESHOT_MEMBER_VIEW_OPTIONS[0].value);
+  const [aiPromptTeeshotCameraDistance, setAiPromptTeeshotCameraDistance] = useState(
+    TEESHOT_DEFAULT_CAMERA_DISTANCE
+  );
+
+  const getAiProfileFormSnapshot = (): AiProfileFormSnapshot =>
+    buildAiProfileFormSnapshot({
+      aspectRatio,
+      aiPromptType,
+      aiPromptNationality,
+      aiPromptGender,
+      aiPromptAge,
+      aiPromptAgeCustom,
+      aiPromptBackground,
+      aiPromptNationalityCustom,
+      aiPromptGenderCustom,
+      aiPromptBackgroundCustom,
+      aiPromptRemoveAiEffect,
+      aiPromptTeeshotPose,
+      aiPromptTeeshotViewAngle,
+      aiPromptTeeshotCameraDistance,
+    });
+
+  const buildAiProfileUserInput = (resolved: ResolvedAiProfileForm): UserInput => ({
+    isGolfRelated: true,
+    category: 'AI 프로필',
+    format: 'AI-PROMPT',
+    keyword: '',
+    userText: '',
+    cardCount: 6,
+    blogLength: 1000,
+    sectionCount: 5,
+    videoLength: 30,
+    sceneCount: 6,
+    tone: '',
+    aspectRatio: resolved.aspectRatio,
+    aiPromptType: resolved.aiPromptType,
+    aiPromptNationality: resolved.aiPromptNationality,
+    aiPromptGender: resolved.aiPromptGender,
+    aiPromptAge: resolved.aiPromptAge,
+    aiPromptBackground: resolved.aiPromptBackground,
+    aiPromptRemoveAiEffect: resolved.aiPromptRemoveAiEffect,
+    aiPromptCustomInput: aiPromptCustomInput.trim() ? aiPromptCustomInput.trim() : undefined,
+    aiPromptTeeshotPose: resolved.aiPromptTeeshotPose,
+    aiPromptTeeshotViewAngle: resolved.aiPromptTeeshotViewAngle,
+    aiPromptTeeshotCameraDistance: resolved.aiPromptTeeshotCameraDistance,
+  });
   useEffect(() => {
     return () => {
       if (bannerDesignReferenceObjectUrl) URL.revokeObjectURL(bannerDesignReferenceObjectUrl);
@@ -258,14 +403,8 @@ export const InputForm: React.FC<InputFormProps> = ({
     });
   };
 
-  const toggleAiPromptAdditionalOption = (id: NonNullable<UserInput['aiPromptAdditionalOptions']>[number]) => {
-    setAiPromptAdditionalOptions((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
-
-  const resolveAiPromptSelectValue = (value: string, customValue: string) =>
-    value === AI_PROMPT_CUSTOM_VALUE ? customValue.trim() : value;
+  const isVirtualProfileType =
+    aiPromptType === '가상 프로필 생성하기' || aiPromptType === AI_PROMPT_RANDOM_VALUE;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -311,6 +450,11 @@ export const InputForm: React.FC<InputFormProps> = ({
       }
     }
 
+    let aiProfileResolved: ResolvedAiProfileForm | null = null;
+    if (isAiPromptFormat) {
+      aiProfileResolved = resolveAiProfileForm(getAiProfileFormSnapshot());
+    }
+
     const userInput: UserInput = {
       isGolfRelated,
       category:
@@ -335,7 +479,7 @@ export const InputForm: React.FC<InputFormProps> = ({
       videoLength,
       sceneCount,
       tone: isBannerFormat || isYouTubeFormat || isAiPromptFormat ? '' : tone,
-      aspectRatio: isBannerFormat || isAiPromptFormat ? aspectRatio : undefined,
+      aspectRatio: isBannerFormat || isAiPromptFormat ? (aiProfileResolved?.aspectRatio ?? aspectRatio) : undefined,
       headline: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? headline : undefined,
       subheadline: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? subheadline : undefined,
       bodyCopy: isBannerFormat && (bannerContentType === '일반' || bannerContentType === '기타 이벤트 배너') ? bodyCopy : undefined,
@@ -349,39 +493,16 @@ export const InputForm: React.FC<InputFormProps> = ({
         isBannerFormat && bannerAiImagePromptHint.trim() ? bannerAiImagePromptHint.trim() : undefined,
       cutCount: isYouTubeFormat ? cutCount : undefined,
       cutTexts: isYouTubeFormat ? cutTexts : undefined,
-      aiPromptType: isAiPromptFormat ? aiPromptType : undefined,
-      aiPromptNationality: isAiPromptFormat
-        ? resolveAiPromptSelectValue(aiPromptNationality, aiPromptNationalityCustom)
-        : undefined,
-      aiPromptGender: isAiPromptFormat
-        ? resolveAiPromptSelectValue(aiPromptGender, aiPromptGenderCustom)
-        : undefined,
-      aiPromptAge: isAiPromptFormat && aiPromptAge.trim() ? aiPromptAge.trim() : undefined,
-      aiPromptHair: isAiPromptFormat ? resolveAiPromptSelectValue(aiPromptHair, aiPromptHairCustom) : undefined,
-      aiPromptSkin: isAiPromptFormat ? resolveAiPromptSelectValue(aiPromptSkin, aiPromptSkinCustom) : undefined,
-      aiPromptClothing: isAiPromptFormat
-        ? resolveAiPromptSelectValue(aiPromptClothing, aiPromptClothingCustom)
-        : undefined,
-      aiPromptClothingColor: isAiPromptFormat
-        ? resolveAiPromptSelectValue(aiPromptClothingColor, aiPromptClothingColorCustom)
-        : undefined,
-      aiPromptActionPose: isAiPromptFormat && aiPromptActionPose.trim() ? aiPromptActionPose.trim() : undefined,
-      aiPromptCameraAngle: isAiPromptFormat
-        ? resolveAiPromptSelectValue(aiPromptCameraAngle, aiPromptCameraAngleCustom)
-        : undefined,
-      aiPromptBackground: isAiPromptFormat
-        ? resolveAiPromptSelectValue(aiPromptBackground, aiPromptBackgroundCustom)
-        : undefined,
-      aiPromptLighting: isAiPromptFormat
-        ? resolveAiPromptSelectValue(aiPromptLighting, aiPromptLightingCustom)
-        : undefined,
-      aiPromptCamera: isAiPromptFormat ? resolveAiPromptSelectValue(aiPromptCamera, aiPromptCameraCustom) : undefined,
-      aiPromptPhotoStyle: isAiPromptFormat
-        ? resolveAiPromptSelectValue(aiPromptPhotoStyle, aiPromptPhotoStyleCustom)
-        : undefined,
-      aiPromptAdditionalOptions: isAiPromptFormat ? aiPromptAdditionalOptions : undefined,
-      aiPromptRemoveAiEffect: isAiPromptFormat ? aiPromptRemoveAiEffect : undefined,
+      aiPromptType: isAiPromptFormat ? aiProfileResolved!.aiPromptType : undefined,
+      aiPromptNationality: isAiPromptFormat ? aiProfileResolved!.aiPromptNationality : undefined,
+      aiPromptGender: isAiPromptFormat ? aiProfileResolved!.aiPromptGender : undefined,
+      aiPromptAge: isAiPromptFormat ? aiProfileResolved!.aiPromptAge : undefined,
+      aiPromptBackground: isAiPromptFormat ? aiProfileResolved!.aiPromptBackground : undefined,
+      aiPromptRemoveAiEffect: isAiPromptFormat ? aiProfileResolved!.aiPromptRemoveAiEffect : undefined,
       aiPromptCustomInput: isAiPromptFormat && aiPromptCustomInput.trim() ? aiPromptCustomInput.trim() : undefined,
+      aiPromptTeeshotPose: isAiPromptFormat ? aiProfileResolved!.aiPromptTeeshotPose : undefined,
+      aiPromptTeeshotViewAngle: isAiPromptFormat ? aiProfileResolved!.aiPromptTeeshotViewAngle : undefined,
+      aiPromptTeeshotCameraDistance: isAiPromptFormat ? aiProfileResolved!.aiPromptTeeshotCameraDistance : undefined,
     };
     onGenerate(userInput);
   };
@@ -440,91 +561,14 @@ export const InputForm: React.FC<InputFormProps> = ({
   };
 
   const handleQuickAiPromptGenerate = () => {
-    const additional = randomAiPromptAdditionalIds();
-    const age = AI_PROMPT_RANDOM_AGES[Math.floor(Math.random() * AI_PROMPT_RANDOM_AGES.length)];
-    const actionPose =
-      AI_PROMPT_RANDOM_ACTIONS_EN[Math.floor(Math.random() * AI_PROMPT_RANDOM_ACTIONS_EN.length)];
-    const nationality = pickAiPromptSelectValue(AI_PROMPT_NATIONALITY_OPTIONS);
-    const gender = pickAiPromptSelectValue(AI_PROMPT_GENDER_OPTIONS);
-    const hair = pickAiPromptSelectValue(AI_PROMPT_HAIR_OPTIONS);
-    const skin = pickAiPromptSelectValue(AI_PROMPT_SKIN_OPTIONS);
-    const clothing = pickAiPromptSelectValue(AI_PROMPT_CLOTHING_OPTIONS);
-    const clothingColor = pickAiPromptSelectValue(AI_PROMPT_CLOTHING_COLOR_OPTIONS);
-    const cameraAngle = pickAiPromptSelectValue(AI_PROMPT_CAMERA_ANGLE_OPTIONS);
-    const background = pickAiPromptSelectValue(AI_PROMPT_BACKGROUND_OPTIONS);
-    const lighting = pickAiPromptSelectValue(AI_PROMPT_LIGHTING_OPTIONS);
-    const cameraLens = pickAiPromptSelectValue(AI_PROMPT_CAMERA_LENS_OPTIONS);
-    const photoStyle = pickAiPromptSelectValue(AI_PROMPT_PHOTO_STYLE_OPTIONS);
-    const removeAiEffect = Math.random() < 0.35;
-    const randomAspect = ASPECT_RATIOS[Math.floor(Math.random() * ASPECT_RATIOS.length)].value;
-
-    setAspectRatio(randomAspect);
-    setAiPromptType(AI_PROMPT_TYPES[0]);
-    setAiPromptNationality(nationality);
-    setAiPromptGender(gender);
-    setAiPromptAge(age);
-    setAiPromptHair(hair);
-    setAiPromptSkin(skin);
-    setAiPromptClothing(clothing);
-    setAiPromptClothingColor(clothingColor);
-    setAiPromptActionPose(actionPose);
-    setAiPromptCameraAngle(cameraAngle);
-    setAiPromptBackground(background);
-    setAiPromptLighting(lighting);
-    setAiPromptCamera(cameraLens);
-    setAiPromptPhotoStyle(photoStyle);
-    setAiPromptAdditionalOptions(additional);
-    setAiPromptRemoveAiEffect(removeAiEffect);
-    setAiPromptCustomInput('');
-    setAiPromptNationalityCustom('');
-    setAiPromptGenderCustom('');
-    setAiPromptHairCustom('');
-    setAiPromptSkinCustom('');
-    setAiPromptClothingCustom('');
-    setAiPromptClothingColorCustom('');
-    setAiPromptCameraAngleCustom('');
-    setAiPromptBackgroundCustom('');
-    setAiPromptLightingCustom('');
-    setAiPromptCameraCustom('');
-    setAiPromptPhotoStyleCustom('');
-
-    const userInput: UserInput = {
-      isGolfRelated: true,
-      category: 'AI 프로필',
-      format: 'AI-PROMPT',
-      keyword: '',
-      userText: '',
-      cardCount: 6,
-      blogLength: 1000,
-      sectionCount: 5,
-      videoLength: 30,
-      sceneCount: 6,
-      tone: '',
-      aspectRatio: randomAspect,
-      aiPromptType: AI_PROMPT_TYPES[0],
-      aiPromptNationality: nationality,
-      aiPromptGender: gender,
-      aiPromptAge: age,
-      aiPromptHair: hair,
-      aiPromptSkin: skin,
-      aiPromptClothing: clothing,
-      aiPromptClothingColor: clothingColor,
-      aiPromptActionPose: actionPose,
-      aiPromptCameraAngle: cameraAngle,
-      aiPromptBackground: background,
-      aiPromptLighting: lighting,
-      aiPromptCamera: cameraLens,
-      aiPromptPhotoStyle: photoStyle,
-      aiPromptAdditionalOptions: additional,
-      aiPromptRemoveAiEffect: removeAiEffect,
-      aiPromptCustomInput: undefined,
-    };
-    onGenerate(userInput);
+    const resolved = resolveAiProfileForm(getAiProfileFormSnapshot());
+    onGenerate(buildAiProfileUserInput(resolved));
   };
 
-  const commonInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 px-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#004B49] focus:border-[#004B49] transition-colors placeholder:text-gray-400";
-  const selectInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-10 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#004B49] focus:border-[#004B49] transition-colors cursor-pointer";
-  const commonLabelClass = "block text-sm font-medium text-gray-600";
+  const commonInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 px-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006B68] focus:border-[#006B68] transition-colors placeholder:text-gray-400 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:ring-[#006B68]/70 dark:focus:border-[#006B68]";
+  const selectInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-10 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006B68] focus:border-[#006B68] transition-colors cursor-pointer dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:focus:ring-[#006B68]/70 dark:focus:border-[#006B68]";
+  const commonLabelClass = "block text-sm font-medium text-gray-600 dark:text-gray-300";
+
   const renderAiPromptSelect = (
     id: string,
     label: string,
@@ -536,8 +580,11 @@ export const InputForm: React.FC<InputFormProps> = ({
     customPlaceholder?: string
   ) => (
     <div>
-      <label htmlFor={id} className={`${commonLabelClass} mb-1`}>{label}</label>
+      <label htmlFor={id} className={`${commonLabelClass} mb-1`}>
+        {label}
+      </label>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={selectInputClass}>
+        <option value={AI_PROMPT_RANDOM_VALUE}>{AI_PROMPT_RANDOM_LABEL}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
@@ -557,9 +604,40 @@ export const InputForm: React.FC<InputFormProps> = ({
     </div>
   );
 
+  const renderAiPromptOptionSelect = (
+    id: string,
+    label: string,
+    value: string,
+    onChange: (value: string) => void,
+    options: ReadonlyArray<{ label: string; value: string }>
+  ) => (
+    <div>
+      <label htmlFor={id} className={`${commonLabelClass} mb-1`}>
+        {label}
+      </label>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={selectInputClass}>
+        <option value={AI_PROMPT_RANDOM_VALUE}>{AI_PROMPT_RANDOM_LABEL}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
+  const renderTeeshotCameraDistanceField = () =>
+    renderAiPromptOptionSelect(
+      'aiPromptTeeshotCameraDistance',
+      '카메라 거리',
+      aiPromptTeeshotCameraDistance,
+      setAiPromptTeeshotCameraDistance,
+      TEESHOT_MEMBER_CAMERA_DISTANCE_OPTIONS
+    );
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <h2 className="text-lg font-semibold text-gray-900 mb-6">컨텐츠 생성 옵션</h2>
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-6">컨텐츠 생성 옵션</h2>
       
       <div>
         <label className={`${commonLabelClass} mb-2 flex items-center justify-between cursor-pointer`}>
@@ -568,7 +646,7 @@ export const InputForm: React.FC<InputFormProps> = ({
               role="switch"
               aria-checked={isGolfRelated}
               onClick={() => setIsGolfRelated(!isGolfRelated)}
-              className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${isGolfRelated ? 'bg-[#004B49]' : 'bg-gray-200'}`}
+              className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${isGolfRelated ? 'bg-gray-900' : 'bg-gray-200'}`}
             >
               <span
                 className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isGolfRelated ? 'translate-x-6' : 'translate-x-1'}`}
@@ -586,41 +664,50 @@ export const InputForm: React.FC<InputFormProps> = ({
             // 포맷별 색상 정의
             const formatColors = {
               'INSTAGRAM-CARD': {
-                selected: 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 text-white shadow-lg',
-                unselected: 'bg-gradient-to-br from-purple-50 to-pink-50 text-purple-600 hover:from-purple-100 hover:to-pink-100'
+                selected:
+                  'border-transparent bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 text-white shadow-lg',
+                unselected:
+                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
               },
               'NAVER-BLOG/BAND': {
-                selected: 'bg-[#03C75A] text-white shadow-lg',
-                unselected: 'bg-green-50 text-[#03C75A] hover:bg-green-100'
+                selected: 'border-transparent bg-[#03C75A] text-white shadow-lg',
+                unselected:
+                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
               },
               'YOUTUBE-SHORTFORM': {
-                selected: 'bg-[#FF0000] text-white shadow-lg',
-                unselected: 'bg-red-50 text-[#FF0000] hover:bg-red-100'
+                selected: 'border-transparent bg-[#FF0000] text-white shadow-lg',
+                unselected:
+                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
               },
               'ETC-BANNER': {
-                selected: 'bg-[#FF9500] text-white shadow-lg',
-                unselected: 'bg-orange-50 text-[#FF9500] hover:bg-orange-100'
+                selected: 'border-transparent bg-gray-900 text-white shadow-lg',
+                unselected:
+                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
               },
               'AI-PROMPT': {
-                selected: 'bg-[#004B49] text-white shadow-lg',
-                unselected: 'bg-teal-50 text-[#004B49] hover:bg-teal-100'
-              }
+                selected: 'border-transparent bg-gray-900 text-white shadow-lg',
+                unselected:
+                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
+              },
             };
-            
-            const colorClass = format === f 
-              ? formatColors[f].selected 
-              : formatColors[f].unselected;
-            
+
+            const colorClass =
+              format === f ? formatColors[f].selected : formatColors[f].unselected;
+
             return (
               <button
                 key={f}
                 type="button"
                 onClick={() => setFormat(f)}
-                className={`flex flex-col items-center justify-center gap-1.5 p-2 text-sm font-medium rounded-lg text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-opacity-50 aspect-square ${colorClass} ${
+                className={`flex flex-col items-center justify-center gap-1.5 p-2 text-sm font-medium rounded-lg text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 aspect-square ${colorClass} ${
                   format === f ? 'scale-105 ring-2 ring-white ring-offset-2' : 'scale-100'
                 }`}
               >
-                {Icon && <Icon className="w-6 h-6 flex-shrink-0" />}
+                {Icon && (
+                  <Icon
+                    className={`w-6 h-6 flex-shrink-0 ${format === f ? 'text-white' : 'text-gray-900'}`}
+                  />
+                )}
                 <span className="text-xs font-semibold leading-tight">{FORMAT_LABELS[f]}</span>
               </button>
             )
@@ -629,35 +716,24 @@ export const InputForm: React.FC<InputFormProps> = ({
       </div>
 
       {format === 'AI-PROMPT' && (
-        <div className="space-y-5 rounded-xl border border-teal-100 bg-teal-50/40 p-4">
-          <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={aiPromptRemoveAiEffect}
-              onChange={(e) => setAiPromptRemoveAiEffect(e.target.checked)}
-              className="mt-0.5 accent-[#004B49]"
-            />
-            <span>
-              <span className="block font-medium text-gray-800">AI 효과 제거</span>
-              <span className="block text-xs text-gray-500 mt-1">
-                선택 시 리얼한 피부·렌즈·빛 왜곡을 강화하는 Positive Suffix와 AI 느낌을 줄이는 Negative Prompt를 필수 추가합니다.
-              </span>
-            </span>
-          </label>
-
+        <div className="space-y-5 rounded-xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+          <p className="text-xs text-gray-600 dark:text-gray-400">
+            각 드롭다운에서 <span className="font-medium text-[#006B68]">랜덤</span>을 선택하면 생성 시 해당 항목만 무작위로 정해집니다.
+          </p>
           <div>
             <label htmlFor="aiPromptAspectRatio" className={`${commonLabelClass} mb-1`}>
-              이미지 비율 <span className="text-gray-400 text-xs font-normal">(이미지 생성 시)</span>
+              이미지 비율
             </label>
-            <p className="text-xs text-gray-500 mb-2">
+            <span className="mb-2 block text-xs text-gray-500">
               통합 프롬프트와 세부 항목에 반영됩니다. 나노바나나 등 외부 이미지 툴에 붙여 넣을 때 종횡비를 맞출 때 참고하세요.
-            </p>
+            </span>
             <select
               id="aiPromptAspectRatio"
               value={aspectRatio}
               onChange={(e) => setAspectRatio(e.target.value)}
               className={selectInputClass}
             >
+              <option value={AI_PROMPT_RANDOM_VALUE}>{AI_PROMPT_RANDOM_LABEL}</option>
               {ASPECT_RATIOS.map((ratio) => (
                 <option key={ratio.value} value={ratio.value}>
                   {ratio.label}
@@ -667,94 +743,117 @@ export const InputForm: React.FC<InputFormProps> = ({
           </div>
 
           <div>
-            <label htmlFor="aiPromptType" className={`${commonLabelClass} mb-1`}>AI 유형</label>
+            <label htmlFor="aiPromptType" className={`${commonLabelClass} mb-1`}>
+              AI 유형
+            </label>
             <select
               id="aiPromptType"
               value={aiPromptType}
-              onChange={(e) => setAiPromptType(e.target.value as UserInput['aiPromptType'])}
+              onChange={(e) => setAiPromptType(e.target.value)}
               className={selectInputClass}
             >
+              <option value={AI_PROMPT_RANDOM_VALUE}>{AI_PROMPT_RANDOM_LABEL}</option>
               {AI_PROMPT_TYPES.map((type) => (
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>
           </div>
 
-          {aiPromptType === 'AI 인물' && (
+          {aiPromptType && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {renderAiPromptSelect('aiPromptNationality', '국적', aiPromptNationality, setAiPromptNationality, AI_PROMPT_NATIONALITY_OPTIONS, aiPromptNationalityCustom, setAiPromptNationalityCustom, '예: Korean-American, Brazilian')}
                 {renderAiPromptSelect('aiPromptGender', '성별', aiPromptGender, setAiPromptGender, AI_PROMPT_GENDER_OPTIONS, aiPromptGenderCustom, setAiPromptGenderCustom, '예: androgynous subject')}
-                {renderAiPromptSelect('aiPromptHair', '머리', aiPromptHair, setAiPromptHair, AI_PROMPT_HAIR_OPTIONS, aiPromptHairCustom, setAiPromptHairCustom, '예: messy short layered hair')}
-                {renderAiPromptSelect('aiPromptSkin', '피부', aiPromptSkin, setAiPromptSkin, AI_PROMPT_SKIN_OPTIONS, aiPromptSkinCustom, setAiPromptSkinCustom, '예: sun-kissed skin with visible pores')}
                 <div>
-                  <label htmlFor="aiPromptAge" className={`${commonLabelClass} mb-1`}>나이</label>
-                  <input
+                  <label htmlFor="aiPromptAge" className={`${commonLabelClass} mb-1`}>
+                    나이
+                  </label>
+                  <select
                     id="aiPromptAge"
-                    type="text"
                     value={aiPromptAge}
                     onChange={(e) => setAiPromptAge(e.target.value)}
-                    className={commonInputClass}
-                    placeholder="예: 34, 39, 45"
-                  />
+                    className={selectInputClass}
+                  >
+                    <option value={AI_PROMPT_RANDOM_VALUE}>{AI_PROMPT_RANDOM_LABEL}</option>
+                    {AI_PROMPT_AGE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                    <option value={AI_PROMPT_CUSTOM_VALUE}>직접 입력</option>
+                  </select>
+                  {aiPromptAge === AI_PROMPT_CUSTOM_VALUE && (
+                    <input
+                      type="text"
+                      value={aiPromptAgeCustom}
+                      onChange={(e) => setAiPromptAgeCustom(e.target.value)}
+                      className={`${commonInputClass} mt-2`}
+                      placeholder="예: 34, 39, 45"
+                    />
+                  )}
                 </div>
-                {renderAiPromptSelect('aiPromptClothing', '의상', aiPromptClothing, setAiPromptClothing, AI_PROMPT_CLOTHING_OPTIONS, aiPromptClothingCustom, setAiPromptClothingCustom, '예: oversized rugby shirt with golf skirt')}
-                {renderAiPromptSelect('aiPromptClothingColor', '의상 컬러', aiPromptClothingColor, setAiPromptClothingColor, AI_PROMPT_CLOTHING_COLOR_OPTIONS, aiPromptClothingColorCustom, setAiPromptClothingColorCustom, '예: cream and forest green accents')}
-                {renderAiPromptSelect('aiPromptCameraAngle', '카메라 앵글', aiPromptCameraAngle, setAiPromptCameraAngle, AI_PROMPT_CAMERA_ANGLE_OPTIONS, aiPromptCameraAngleCustom, setAiPromptCameraAngleCustom, '예: candid mirror selfie angle')}
-                {renderAiPromptSelect('aiPromptBackground', '배경', aiPromptBackground, setAiPromptBackground, AI_PROMPT_BACKGROUND_OPTIONS, aiPromptBackgroundCustom, setAiPromptBackgroundCustom, '예: golf cart parking area after rain')}
-                {renderAiPromptSelect('aiPromptLighting', '조명효과', aiPromptLighting, setAiPromptLighting, AI_PROMPT_LIGHTING_OPTIONS, aiPromptLightingCustom, setAiPromptLightingCustom, '예: golden hour backlight')}
-                {renderAiPromptSelect('aiPromptCamera', '카메라 렌즈', aiPromptCamera, setAiPromptCamera, AI_PROMPT_CAMERA_LENS_OPTIONS, aiPromptCameraCustom, setAiPromptCameraCustom, '예: iPhone 15 Pro, Sony FE 35mm f/1.4 GM')}
-                {renderAiPromptSelect('aiPromptPhotoStyle', '사진 품질 및 스타일', aiPromptPhotoStyle, setAiPromptPhotoStyle, AI_PROMPT_PHOTO_STYLE_OPTIONS, aiPromptPhotoStyleCustom, setAiPromptPhotoStyleCustom, '예: disposable camera look, raw candid photo')}
+                {renderAiPromptSelect(
+                  'aiPromptBackground',
+                  '배경',
+                  aiPromptBackground,
+                  setAiPromptBackground,
+                  AI_PROMPT_BACKGROUND_OPTIONS,
+                  aiPromptBackgroundCustom,
+                  setAiPromptBackgroundCustom,
+                  '예: golf course in Scotland, links-style coastal background'
+                )}
+                {isVirtualProfileType && (
+                  <>
+                    {renderAiPromptOptionSelect(
+                      'aiPromptTeeshotPose',
+                      '포즈 / 자세',
+                      aiPromptTeeshotPose,
+                      setAiPromptTeeshotPose,
+                      TEESHOT_MEMBER_POSE_OPTIONS
+                    )}
+                    {renderAiPromptOptionSelect(
+                      'aiPromptTeeshotViewAngle',
+                      '촬영 방향',
+                      aiPromptTeeshotViewAngle,
+                      setAiPromptTeeshotViewAngle,
+                      TEESHOT_MEMBER_VIEW_OPTIONS
+                    )}
+                    {renderTeeshotCameraDistanceField()}
+                  </>
+                )}
               </div>
 
               <div>
-                <label htmlFor="aiPromptActionPose" className={`${commonLabelClass} mb-1`}>
-                  포즈 및 액션 <span className="text-gray-400 text-xs font-normal">(직접 입력)</span>
-                </label>
-                <textarea
-                  id="aiPromptActionPose"
-                  value={aiPromptActionPose}
-                  onChange={(e) => setAiPromptActionPose(e.target.value)}
-                  className={`${commonInputClass} h-24`}
-                  placeholder="예: 티박스에서 드라이버를 들고 자연스럽게 웃는 모습, 카트 거울을 보며 모자를 고치는 모습"
-                />
-              </div>
-
-              <div>
-                <span className={`${commonLabelClass} mb-2`}>추가 옵션</span>
+                <span className={`${commonLabelClass} mb-2 block`}>추가 옵션</span>
                 <div className="space-y-2">
-                  {AI_PROMPT_ADDITIONAL_OPTIONS.map((option) => {
-                    const checked = aiPromptAdditionalOptions.includes(option.id);
-                    return (
-                      <label
-                        key={option.id}
-                        className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${
-                          checked ? 'border-[#004B49] bg-white text-[#004B49]' : 'border-gray-200 bg-white/70 text-gray-700'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleAiPromptAdditionalOption(option.id)}
-                          className="mt-0.5 accent-[#004B49]"
-                        />
-                        <span>{option.label}</span>
-                      </label>
-                    );
-                  })}
+                  <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 text-sm cursor-pointer dark:border-gray-600 dark:bg-gray-900">
+                    <input
+                      type="checkbox"
+                      checked={aiPromptRemoveAiEffect}
+                      onChange={(e) => setAiPromptRemoveAiEffect(e.target.checked)}
+                      className="mt-0.5 accent-[#006B68]"
+                    />
+                    <span className="flex-1">
+                      <span className="block font-medium text-gray-800 dark:text-gray-100">AI 효과 제거</span>
+                      <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        선택 시 비대칭·기울어진 구도·손떨림(필수), 전체적으로 약간 어둡고 노출을 잘못 잡은 어색한 밝기, 아마추어 스마트폰 스냅샷 톤, 미세한 안면 비대칭, 렌즈 왜곡·질감, 주름·잔머리·모공, AI 느낌을 줄이는 Positive/Negative 프롬프트가 자동 적용됩니다.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
 
               <div>
                 <label htmlFor="aiPromptCustomInput" className={`${commonLabelClass} mb-1`}>
-                  직접 입력란 <span className="text-gray-400 text-xs font-normal">(선택)</span>
+                  직접 입력란
                 </label>
+                <span className="mb-1 block text-xs text-gray-400">(선택)</span>
                 <textarea
                   id="aiPromptCustomInput"
                   value={aiPromptCustomInput}
                   onChange={(e) => setAiPromptCustomInput(e.target.value)}
                   className={`${commonInputClass} h-28`}
-                  placeholder="추가로 반영할 인물 특징, 분위기, 금지 요소 등을 한글로 입력하세요."
+                  placeholder="포즈, 의상, 배경, 조명, 카메라, 스타일 등 추가로 반영할 내용을 한글로 입력하세요."
                 />
               </div>
             </>
@@ -838,7 +937,7 @@ export const InputForm: React.FC<InputFormProps> = ({
                 type="file"
                 accept="image/png,image/jpeg,image/jpg,image/webp"
                 onChange={handleBannerDesignReferenceChange}
-                className={`block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-[#004B49] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-[#003a38] disabled:opacity-50 disabled:cursor-not-allowed`}
+                className={`block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-800 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed`}
               />
               {bannerDesignReferenceObjectUrl && (
                 <>
@@ -877,7 +976,7 @@ export const InputForm: React.FC<InputFormProps> = ({
                           <ul className="space-y-1.5 text-left">
                               {CATEGORIES.map(c => (
                                   <li key={c.name} className="flex">
-                                      <strong className="text-[#004B49] font-semibold w-28 flex-shrink-0">{c.name}:</strong>
+                                      <strong className="text-[#006B68] font-semibold w-28 flex-shrink-0">{c.name}:</strong>
                                       <span className="text-gray-600">{c.description}</span>
                                   </li>
                               ))}
@@ -911,7 +1010,7 @@ export const InputForm: React.FC<InputFormProps> = ({
           <div>
             <label htmlFor="videoLength" className={`${commonLabelClass} mb-2`}>
               영상 길이
-              <span className="ml-2 text-lg font-bold text-[#004B49]">{videoLength}초</span>
+              <span className="ml-2 text-lg font-bold text-[#006B68]">{videoLength}초</span>
             </label>
             <input
               type="range"
@@ -921,7 +1020,7 @@ export const InputForm: React.FC<InputFormProps> = ({
               step="5"
               value={videoLength}
               onChange={(e) => setVideoLength(parseInt(e.target.value))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#004B49] hover:accent-[#003A38] transition-colors"
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#006B68] hover:accent-[#005552] transition-colors"
             />
             <div className="flex justify-between text-xs text-gray-500 mt-1">
               <span>5초</span>
@@ -933,7 +1032,7 @@ export const InputForm: React.FC<InputFormProps> = ({
           <div>
             <label htmlFor="cutCount" className={`${commonLabelClass} mb-2`}>
               영상 컷
-              <span className="ml-2 text-lg font-bold text-[#004B49]">{cutCount}개</span>
+              <span className="ml-2 text-lg font-bold text-[#006B68]">{cutCount}개</span>
             </label>
             <input
               type="range"
@@ -949,7 +1048,7 @@ export const InputForm: React.FC<InputFormProps> = ({
                 const newCutTexts = Array(newCutCount).fill('').map((_, index) => cutTexts[index] || '');
                 setCutTexts(newCutTexts);
               }}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#004B49] hover:accent-[#003A38] transition-colors"
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#006B68] hover:accent-[#005552] transition-colors"
             />
             <div className="flex justify-between text-xs text-gray-500 mt-1">
               <span>1개</span>
@@ -985,7 +1084,7 @@ export const InputForm: React.FC<InputFormProps> = ({
         <div>
           <label htmlFor="cardCount" className={`${commonLabelClass} mb-2`}>
             카드 수
-            <span className="ml-2 text-lg font-bold text-[#004B49]">{cardCount}장</span>
+            <span className="ml-2 text-lg font-bold text-[#006B68]">{cardCount}장</span>
           </label>
           <input
             type="range"
@@ -995,7 +1094,7 @@ export const InputForm: React.FC<InputFormProps> = ({
             step="1"
             value={cardCount}
             onChange={(e) => setCardCount(parseInt(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#004B49] hover:accent-[#003A38] transition-colors"
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#006B68] hover:accent-[#005552] transition-colors"
           />
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>3장</span>
@@ -1015,7 +1114,7 @@ export const InputForm: React.FC<InputFormProps> = ({
          <div>
           <label htmlFor="blogLength" className={`${commonLabelClass} mb-2`}>
             텍스트 분량
-            <span className="ml-2 text-lg font-bold text-[#004B49]">{blogLength.toLocaleString()}자</span>
+            <span className="ml-2 text-lg font-bold text-[#006B68]">{blogLength.toLocaleString()}자</span>
           </label>
           <input
             type="range"
@@ -1025,7 +1124,7 @@ export const InputForm: React.FC<InputFormProps> = ({
             step="500"
             value={blogLength}
             onChange={(e) => setBlogLength(parseInt(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#004B49] hover:accent-[#003A38] transition-colors"
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#006B68] hover:accent-[#005552] transition-colors"
           />
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>500자</span>
@@ -1042,7 +1141,7 @@ export const InputForm: React.FC<InputFormProps> = ({
         <div>
           <label htmlFor="sectionCount" className={`${commonLabelClass} mb-2`}>
             본문 섹션 수
-            <span className="ml-2 text-lg font-bold text-[#004B49]">{sectionCount}개</span>
+            <span className="ml-2 text-lg font-bold text-[#006B68]">{sectionCount}개</span>
           </label>
           <input
             type="range"
@@ -1052,7 +1151,7 @@ export const InputForm: React.FC<InputFormProps> = ({
             step="1"
             value={sectionCount}
             onChange={(e) => setSectionCount(parseInt(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#004B49] hover:accent-[#003A38] transition-colors"
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#006B68] hover:accent-[#005552] transition-colors"
           />
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>1개</span>
@@ -1148,7 +1247,7 @@ export const InputForm: React.FC<InputFormProps> = ({
                 {isEventBannerForm ? '제목' : '헤드라인'} <span className="text-red-500">*</span>
               </label>
               {!isEventBannerForm && (
-              <span className={`text-xs ${headline.length > 8 ? 'text-blue-600 font-medium' : headline.length > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
+              <span className={`text-xs ${headline.length > 8 ? 'text-blue-600 font-medium' : headline.length > 0 ? 'text-[#F97000] font-medium' : 'text-gray-400'}`}>
                 {headline.length}자 {headline.length > 8 ? '✓ 그대로 사용' : headline.length > 0 ? '→ 확장 가능' : ''}
               </span>
               )}
@@ -1169,7 +1268,7 @@ export const InputForm: React.FC<InputFormProps> = ({
               <p className="mt-1 text-xs text-blue-600">제목은 길이와 관계없이 원문 그대로 출력됩니다.</p>
             )}
             {!isEventBannerForm && headline.length > 0 && (
-              <p className={`mt-1 text-xs ${headline.length > 8 ? 'text-blue-600' : 'text-orange-600'}`}>
+              <p className={`mt-1 text-xs ${headline.length > 8 ? 'text-blue-600' : 'text-[#F97000]'}`}>
                 {headline.length > 8 
                   ? '✓ 입력하신 텍스트가 그대로 사용됩니다.' 
                   : '💡 8글자 이하이면 AI가 내용을 확장하여 생성합니다.'}
@@ -1182,7 +1281,7 @@ export const InputForm: React.FC<InputFormProps> = ({
                 {isEventBannerForm ? '부제목' : '서브헤드라인'} <span className="text-gray-400 text-xs">(선택)</span>
               </label>
               {!isEventBannerForm && subheadline.length > 0 && (
-                <span className={`text-xs ${subheadline.length > 8 ? 'text-blue-600 font-medium' : 'text-orange-600 font-medium'}`}>
+                <span className={`text-xs ${subheadline.length > 8 ? 'text-blue-600 font-medium' : 'text-[#F97000] font-medium'}`}>
                   {subheadline.length}자 {subheadline.length > 8 ? '✓ 그대로 사용' : '→ 확장 가능'}
                 </span>
               )}
@@ -1210,7 +1309,7 @@ export const InputForm: React.FC<InputFormProps> = ({
               <p className="mt-1 text-xs text-blue-600">입력한 부제목은 수정 없이 그대로 사용됩니다.</p>
             )}
             {!isEventBannerForm && subheadline.length > 0 && (
-              <p className={`mt-1 text-xs ${subheadline.length > 8 ? 'text-blue-600' : 'text-orange-600'}`}>
+              <p className={`mt-1 text-xs ${subheadline.length > 8 ? 'text-blue-600' : 'text-[#F97000]'}`}>
                 {subheadline.length > 8 
                   ? '✓ 입력하신 텍스트가 그대로 사용됩니다.' 
                   : bannerAutoFillEmptyFields
@@ -1270,7 +1369,7 @@ export const InputForm: React.FC<InputFormProps> = ({
                 {isEventBannerForm ? 'CTA 문구' : 'CTA (행동 유도 문구)'} <span className="text-gray-400 text-xs">(선택)</span>
               </label>
               {!isEventBannerForm && cta.length > 0 && (
-                <span className={`text-xs ${cta.length > 8 ? 'text-blue-600 font-medium' : 'text-orange-600 font-medium'}`}>
+                <span className={`text-xs ${cta.length > 8 ? 'text-blue-600 font-medium' : 'text-[#F97000] font-medium'}`}>
                   {cta.length}자 {cta.length > 8 ? '✓ 그대로 사용' : '→ 확장 가능'}
                 </span>
               )}
@@ -1298,7 +1397,7 @@ export const InputForm: React.FC<InputFormProps> = ({
               <p className="mt-1 text-xs text-blue-600">입력한 CTA는 수정 없이 그대로 사용됩니다.</p>
             )}
             {!isEventBannerForm && cta.length > 0 && (
-              <p className={`mt-1 text-xs ${cta.length > 8 ? 'text-blue-600' : 'text-orange-600'}`}>
+              <p className={`mt-1 text-xs ${cta.length > 8 ? 'text-blue-600' : 'text-[#F97000]'}`}>
                 {cta.length > 8 
                   ? '✓ 입력하신 텍스트가 그대로 사용됩니다.' 
                   : bannerAutoFillEmptyFields
@@ -1321,20 +1420,20 @@ export const InputForm: React.FC<InputFormProps> = ({
           </>
           )}
 
-          <div className="rounded-xl border-2 border-[#004B49]/20 bg-[#004B49]/10 p-4 mt-2">
+          <div className="rounded-xl border-2 border-gray-200 bg-gray-50 p-4 mt-2 dark:border-gray-700 dark:bg-gray-800/60">
             <button
               type="button"
               onClick={() => setBannerAutoFillEmptyFields((v) => !v)}
               className={`w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-all border-2 ${
                 bannerAutoFillEmptyFields
-                  ? 'border-[#004B49] bg-white text-[#004B49] shadow-sm'
-                  : 'border-transparent bg-white/70 text-gray-800 hover:border-[#004B49]/40'
+                  ? 'border-gray-900 bg-white text-gray-900 shadow-sm dark:border-gray-400 dark:bg-gray-900 dark:text-gray-100'
+                  : 'border-transparent bg-white/70 text-gray-800 hover:border-gray-400 dark:bg-gray-900/70 dark:text-gray-200 dark:hover:border-gray-500'
               }`}
             >
               <span className="flex items-center gap-2">
                 <span
                   className={`inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
-                    bannerAutoFillEmptyFields ? 'bg-[#004B49]' : 'bg-gray-300'
+                    bannerAutoFillEmptyFields ? 'bg-gray-900' : 'bg-gray-300'
                   }`}
                   aria-hidden
                 >
@@ -1350,7 +1449,7 @@ export const InputForm: React.FC<InputFormProps> = ({
             <p className="mt-2 text-xs text-gray-600 leading-relaxed">
               {bannerAutoFillEmptyFields ? (
                 <>
-                  <strong className="text-[#004B49]">켜짐:</strong> 미입력·짧은 입력이 있어도 AI가 문구·섹션을 보완합니다.{' '}
+                  <strong className="text-gray-900">켜짐:</strong> 미입력·짧은 입력이 있어도 AI가 문구·섹션을 보완합니다.{' '}
                   <span className="text-gray-500">
                     (일반·기타 이벤트: 부제·본문·CTA / 인포그래픽·랭킹·어디로칠까·용어사전: 내용·설명 확장)
                   </span>
@@ -1414,7 +1513,7 @@ export const InputForm: React.FC<InputFormProps> = ({
                     <button 
                     type="button" 
                     onClick={handleRefreshKeyword} 
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-[#004B49] transition-colors focus:outline-none"
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-700 transition-colors focus:outline-none"
                     aria-label="새로운 키워드 추천받기"
                     title="새로운 키워드 추천받기"
                     >
@@ -1432,7 +1531,7 @@ export const InputForm: React.FC<InputFormProps> = ({
       )}
 
       <div className="space-y-3">
-        <button type="submit" disabled={isLoading} className="w-full flex items-center justify-center bg-gradient-to-r from-[#004B49] via-[#005855] to-[#004B49] hover:from-[#003A38] hover:via-[#004640] hover:to-[#003A38] text-white font-bold py-4 px-4 rounded-lg transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100 shadow-lg hover:shadow-xl">
+        <button type="submit" disabled={isLoading} className="w-full flex items-center justify-center bg-gradient-to-r from-[#006B68] via-[#007A77] to-[#006B68] hover:from-[#005552] hover:via-[#005955] hover:to-[#005552] text-white font-bold py-4 px-4 rounded-lg transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100 shadow-lg hover:shadow-xl">
           {isLoading ? (
             <>
               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -1454,7 +1553,7 @@ export const InputForm: React.FC<InputFormProps> = ({
             type="button"
             onClick={handleQuickAiPromptGenerate}
             disabled={isLoading}
-            className="w-full flex items-center justify-center bg-gradient-to-r from-orange-500 via-orange-400 to-orange-500 hover:from-orange-600 hover:via-orange-500 hover:to-orange-600 text-white font-bold py-4 px-4 rounded-lg transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100 shadow-lg hover:shadow-xl"
+            className="w-full flex items-center justify-center bg-gradient-to-r from-[#F97000] via-[#FF8519] to-[#F97000] hover:from-[#E06600] hover:via-[#F97000] hover:to-[#E06600] text-white font-bold py-4 px-4 rounded-lg transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100 shadow-lg hover:shadow-xl"
           >
             {isLoading ? (
               <>
@@ -1478,7 +1577,7 @@ export const InputForm: React.FC<InputFormProps> = ({
             type="button" 
             onClick={handleQuickGenerate} 
             disabled={isLoading}
-            className="w-full flex items-center justify-center bg-gradient-to-r from-orange-500 via-orange-400 to-orange-500 hover:from-orange-600 hover:via-orange-500 hover:to-orange-600 text-white font-bold py-4 px-4 rounded-lg transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100 shadow-lg hover:shadow-xl"
+            className="w-full flex items-center justify-center bg-gradient-to-r from-[#F97000] via-[#FF8519] to-[#F97000] hover:from-[#E06600] hover:via-[#F97000] hover:to-[#E06600] text-white font-bold py-4 px-4 rounded-lg transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100 shadow-lg hover:shadow-xl"
           >
             {isLoading ? (
               <>

@@ -1,101 +1,116 @@
-
 import React from 'react';
-import { InstagramIcon, BlogIcon, YouTubeIcon } from './icons';
+import teeshotLogo from '../assets/teeshot-logo.png';
+import { MoonIcon, SunIcon } from './icons';
+import { useTheme } from '../theme/ThemeProvider';
+import type { ThemeMode } from '../theme/ThemeProvider';
+
+type SnsChannel = {
+  label: string;
+  href: string;
+};
+
+const SNS_CHANNELS: SnsChannel[] = [
+  { label: '인스타그램', href: 'https://www.instagram.com/teeshot_official/' },
+  { label: '유튜브', href: 'https://www.youtube.com/@%ED%8B%B0%EC%83%B7%EC%88%8F%EC%B8%A0' },
+  { label: '페이스북', href: '#' },
+  { label: '네이버 카페', href: '#' },
+  { label: '네이버 블로그', href: 'https://blog.naver.com/teeshotgolf-' },
+  { label: '네이버 밴드', href: '#' },
+];
+
+const GLASS_NAV =
+  'bg-white/95 backdrop-blur-sm backdrop-saturate-150 border-white/90 shadow-[0_1px_0_rgba(255,255,255,0.92)_inset] supports-[backdrop-filter]:bg-white/92 dark:bg-gray-950/95 dark:border-gray-800/90 dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] dark:supports-[backdrop-filter]:bg-gray-950/92';
+
+type ThemeToggleProps = {
+  theme: ThemeMode;
+  onChange: (theme: ThemeMode) => void;
+};
+
+const ThemeToggle: React.FC<ThemeToggleProps> = ({ theme, onChange }) => (
+  <div
+    className="flex items-center rounded-full border border-gray-200/90 bg-gray-100/90 p-0.5 dark:border-gray-700 dark:bg-gray-800/90"
+    role="group"
+    aria-label="테마 설정"
+  >
+    <button
+      type="button"
+      onClick={() => onChange('light')}
+      aria-pressed={theme === 'light'}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors ${
+        theme === 'light'
+          ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
+          : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+      }`}
+    >
+      <SunIcon className="h-3.5 w-3.5" aria-hidden />
+      <span className="hidden sm:inline">Light</span>
+    </button>
+    <button
+      type="button"
+      onClick={() => onChange('dark')}
+      aria-pressed={theme === 'dark'}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors ${
+        theme === 'dark'
+          ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
+          : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+      }`}
+    >
+      <MoonIcon className="h-3.5 w-3.5" aria-hidden />
+      <span className="hidden sm:inline">Dark</span>
+    </button>
+  </div>
+);
 
 export const Header: React.FC = () => {
+  const { theme, setTheme } = useTheme();
+
   return (
-    <header className="bg-white backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
-      <div className="container mx-auto px-4 py-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <svg className="w-12 h-12 text-[#004B49]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" fill="currentColor"/>
-              <path d="M16.24 7.76C15.07 6.59 13.53 6 12 6v6l-4.24 4.24c2.34 2.34 6.14 2.34 8.48 0 2.34-2.34 2.34-6.14 0-8.48z" fill="currentColor" opacity="0.6"/>
-              <path d="M12 4c-1.57 0-3.04.64-4.12 1.73L12 10V4z" fill="#004B49"/>
-            </svg>
-            <h1 className="text-2xl font-bold text-black tracking-wide">
-              TeeShot <span className="font-light text-gray-600">Content Generator V 0.1</span>
-            </h1>
+    <header
+      className={`group/sns relative sticky top-0 z-50 border-b border-gray-200/80 shadow-[0_2px_14px_rgba(15,23,42,0.07)] dark:border-gray-800/80 dark:shadow-[0_2px_16px_rgba(0,0,0,0.35)] ${GLASS_NAV}`}
+    >
+      <div className="container mx-auto px-4">
+        <div className="flex h-[72px] items-center justify-between">
+          <div className="flex min-w-0 items-center gap-5">
+            <img
+              src={teeshotLogo}
+              alt="TEESHOT"
+              className="h-8 w-auto shrink-0"
+            />
+            <span className="hidden truncate text-[13px] font-light tracking-wide text-gray-400 dark:text-gray-500 sm:inline">
+              Content Generator V 0.1
+            </span>
           </div>
-          
-          <div className="flex items-center space-x-2">
-            <a
-              href="https://www.instagram.com/teeshot_official/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all duration-200 hover:scale-105"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <linearGradient id="instagram-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#833AB4" />
-                    <stop offset="50%" stopColor="#E1306C" />
-                    <stop offset="100%" stopColor="#F77737" />
-                  </linearGradient>
-                </defs>
-                <rect x="2" y="2" width="20" height="20" rx="5" ry="5" fill="url(#instagram-gradient)"></rect>
-                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" fill="white"></path>
-                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" stroke="white" strokeWidth="2" strokeLinecap="round"></line>
-              </svg>
-              <span className="text-sm font-medium">티샷 인스타</span>
-            </a>
-            
-            <a
-              href="#"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all duration-200 hover:scale-105"
-            >
-              <svg className="w-4 h-4" fill="#1877F2" viewBox="0 0 24 24">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-              </svg>
-              <span className="text-sm font-medium">티샷 페이스북</span>
-            </a>
-            
-            <a
-              href="https://blog.naver.com/teeshotgolf-"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all duration-200 hover:scale-105"
-            >
-              <BlogIcon className="w-4 h-4" style={{ color: '#03C75A' }} />
-              <span className="text-sm font-medium">티샷 블로그</span>
-            </a>
-            
-            <a
-              href="#"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all duration-200 hover:scale-105"
-            >
-              <svg className="w-4 h-4" fill="#FF6600" viewBox="0 0 24 24">
-                <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 2.18l8 4v8.82c0 4.54-3.07 8.79-8 9.82-4.93-1.03-8-5.28-8-9.82V8.18l8-4z"/>
-                <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
-              </svg>
-              <span className="text-sm font-medium">티샷 카페</span>
-            </a>
-            
-            <a
-              href="#"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all duration-200 hover:scale-105"
-            >
-              <svg className="w-4 h-4" fill="#00C73C" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
-              </svg>
-              <span className="text-sm font-medium">티샷 밴드</span>
-            </a>
-            
-            <a
-              href="https://www.youtube.com/@%ED%8B%B0%EC%83%B7%EC%88%8F%EC%B8%A0"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all duration-200 hover:scale-105"
-            >
-              <YouTubeIcon className="w-4 h-4 text-[#FF0000]" />
-              <span className="text-sm font-medium">티샷 유튜브</span>
-            </a>
+
+          <div className="flex shrink-0 items-center gap-4 sm:gap-6">
+            <nav className="flex h-full items-center">
+              <span
+                className="cursor-default select-none py-4 text-[15px] font-normal text-gray-800 transition-all duration-200 group-hover/sns:font-semibold dark:text-gray-200"
+                aria-haspopup="true"
+              >
+                SNS 채널
+              </span>
+            </nav>
+            <ThemeToggle theme={theme} onChange={setTheme} />
+          </div>
+        </div>
+      </div>
+
+      <div className="pointer-events-none invisible absolute inset-x-0 top-full z-50 w-full opacity-0 transition-all duration-200 group-hover/sns:pointer-events-auto group-hover/sns:visible group-hover/sns:opacity-100">
+        <div className={`w-full border-b border-gray-200/70 pt-1 shadow-[0_12px_32px_rgba(15,23,42,0.08)] dark:border-gray-800/70 dark:shadow-[0_12px_32px_rgba(0,0,0,0.4)] ${GLASS_NAV}`}>
+          <div className="container mx-auto px-4">
+            <div className="flex flex-wrap items-center justify-end gap-x-10 gap-y-2 pb-4 pt-2">
+              {SNS_CHANNELS.map((channel) => (
+                <a
+                  key={channel.label}
+                  href={channel.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="whitespace-nowrap text-sm text-gray-500 transition-colors duration-200 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+                >
+                  {channel.label}
+                </a>
+              ))}
+            </div>
           </div>
         </div>
       </div>

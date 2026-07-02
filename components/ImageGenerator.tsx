@@ -184,7 +184,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
   };
 
 
-  const commonInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 px-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#1FA77A] focus:border-[#1FA77A] transition-colors placeholder:text-gray-400";
+  const commonInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 px-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006B68] focus:border-[#006B68] transition-colors placeholder:text-gray-400";
 
   return (
     <div className="bg-white p-6 rounded-b-xl rounded-r-xl shadow-lg border border-gray-200 border-t-0 min-h-[calc(100vh-13rem)] flex flex-col">
@@ -207,7 +207,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
             </p>
             <p className="mt-1 text-xs text-gray-500">{IMAGE_MODELS[0]?.label}</p>
         </div>
-        <button type="submit" disabled={isLoading || !prompt.trim()} className="w-full flex items-center justify-center bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-bold py-2.5 px-4 rounded-md transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100">
+        <button type="submit" disabled={isLoading || !prompt.trim()} className="w-full flex items-center justify-center bg-[#006B68] hover:bg-[#005552] text-white font-bold py-2.5 px-4 rounded-md transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed transform hover:scale-105 disabled:scale-100">
           {isLoading ? (
             <>
               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -227,7 +227,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
       <div className="flex-grow flex items-center justify-center bg-gray-50 rounded-lg p-4">
         {isLoading && (
            <div className="flex flex-col items-center justify-center h-full">
-                <svg className="animate-spin h-10 w-10 text-[#1FA77A]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin h-10 w-10 text-[#006B68]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
@@ -289,7 +289,7 @@ export const ImageGenerator: React.FC<ImageGeneratorProps> = ({ initialPrompt })
                     />
                     <button
                       onClick={handleCopyS3Url}
-                      className="flex items-center justify-center bg-[#1FA77A] hover:bg-[#1a8c68] text-white font-medium py-2 px-3 rounded-md transition-colors whitespace-nowrap"
+                      className="flex items-center justify-center bg-[#006B68] hover:bg-[#005552] text-white font-medium py-2 px-3 rounded-md transition-colors whitespace-nowrap"
                     >
                       {isCopied ? <CheckIcon className="w-4 h-4 mr-1 text-green-300" /> : <CopyIcon className="w-4 h-4 mr-1" />}
                       {isCopied ? '복사됨' : '복사'}

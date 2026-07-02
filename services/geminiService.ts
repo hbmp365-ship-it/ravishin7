@@ -2,24 +2,34 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import type { UserInput, GeneratedContent } from '../types';
 import {
-  AI_EFFECT_REMOVAL_NEGATIVE_PROMPT,
-  AI_EFFECT_REMOVAL_POSITIVE_SUFFIX,
-  AI_PROMPT_ADDITIONAL_OPTIONS,
+  AI_EFFECT_REMOVAL_KOREAN_SNAPSHOT_RULES,
+  AI_EFFECT_REMOVAL_KOREAN_SUMMARY,
   AI_PROMPT_BACKGROUND_OPTIONS,
-  AI_PROMPT_CAMERA_ANGLE_OPTIONS,
-  AI_PROMPT_CAMERA_LENS_OPTIONS,
-  AI_PROMPT_CLOTHING_COLOR_OPTIONS,
-  AI_PROMPT_CLOTHING_OPTIONS,
   AI_PROMPT_GENDER_OPTIONS,
-  AI_PROMPT_HAIR_OPTIONS,
-  AI_PROMPT_LIGHTING_OPTIONS,
   AI_PROMPT_NATIONALITY_OPTIONS,
-  AI_PROMPT_PHOTO_STYLE_OPTIONS,
-  AI_PROMPT_SKIN_OPTIONS,
+  AI_PROMPT_TYPES,
+  AI_PROMPT_TYPE_LABELS,
   ASPECT_RATIOS,
+  buildAiEffectRemovalEnglishBlock,
   GEMINI_NATIVE_IMAGE_MODEL_ID,
   SYSTEM_PROMPT,
 } from '../constants';
+import {
+  buildAgeAppearanceGuidance,
+  normalizeAiProfileAge,
+} from '../utils/aiProfileImagePrompt';
+import {
+  buildTeeshotVirtualMemberProfileDetailLines,
+  buildTeeshotVirtualMemberProfileEnglishParagraph,
+  buildTeeshotVirtualMemberProfileKoreanSummary,
+  isTeeshotVirtualMemberProfileEnabled,
+} from '../utils/teeshotVirtualMemberProfile';
+import {
+  type AiProfileMemberMetadata,
+  buildAiProfileMemberMetadataFallback,
+  buildAiProfileMemberMetadataPrompt,
+  formatAiProfileMemberMetadataSection,
+} from '../utils/aiProfileMemberMetadata';
 
 /**
  * URL에서 텍스트 내용 가져오기
@@ -144,50 +154,101 @@ const parseJsonObjectFromModelText = (raw: string): Record<string, unknown> | nu
   }
 };
 
-/** 포즈·직접 입력을 이미지용 영어로 한 번에 번역 */
-const translateAiPromptPoseAndNote = async (
+/** 직접 입력을 이미지용 영어로 번역 */
+const translateAiPromptCustomNote = async (
   ai: GoogleGenAI,
-  pose: string,
   note: string
-): Promise<{ pose_en: string; note_en: string }> => {
+): Promise<{ note_en: string }> => {
   const userText =
-    'Return ONLY a JSON object with string keys "pose_en" and "note_en". No markdown, no code fences, no extra keys.\n' +
+    'Return ONLY a JSON object with string key "note_en". No markdown, no code fences, no extra keys.\n' +
     'Rules:\n' +
-    '- Values must be fluent English, concise, visually descriptive for AI image generation.\n' +
-    '- If POSE is empty or whitespace only, set pose_en to "".\n' +
+    '- Value must be fluent English, concise, visually descriptive for AI image generation.\n' +
     '- If CUSTOM_NOTE is empty or whitespace only, set note_en to "".\n' +
-    '- If a field is already English (Latin script), keep meaning; light polish only.\n' +
+    '- If already English (Latin script), keep meaning; light polish only.\n' +
     '- Otherwise translate (e.g. Korean) into natural English.\n\n' +
-    `POSE:\n${pose}\n\nCUSTOM_NOTE:\n${note}`;
+    `CUSTOM_NOTE:\n${note}`;
 
   const response = await retryWithBackoff(async () =>
     ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: userText,
       config: {
-        systemInstruction:
-          'You output only valid JSON: {"pose_en":"...","note_en":"..."}. Both values are strings.',
+        systemInstruction: 'You output only valid JSON: {"note_en":"..."}. note_en is a string.',
       },
     })
   );
 
   const parsed = parseJsonObjectFromModelText(response.text ?? '');
-  const pose_en = typeof parsed?.pose_en === 'string' ? parsed.pose_en : '';
   const note_en = typeof parsed?.note_en === 'string' ? parsed.note_en : '';
-  return { pose_en, note_en };
+  return { note_en };
+};
+
+export const generateAiProfileMemberMetadata = async (
+  input: UserInput
+): Promise<AiProfileMemberMetadata> => {
+  const fallback = buildAiProfileMemberMetadataFallback(input);
+  if (!process.env.API_KEY) {
+    console.warn('[AI-PROMPT] API_KEY 없음 — 가상 회원 메타데이터 로컬 랜덤 생성');
+    return fallback;
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await retryWithBackoff(async () =>
+      ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: buildAiProfileMemberMetadataPrompt(input),
+        config: {
+          systemInstruction:
+            'You output only valid JSON with keys: personName, memberNickname, gender, age, activityRegion, averageScore, golfExperience, monthlyRounds, overseasGolfCount, favoriteGolfCourse, introduction. All values are Korean strings.',
+        },
+      })
+    );
+
+    const parsed = parseJsonObjectFromModelText(response.text ?? '');
+    if (!parsed) return fallback;
+
+    const metadata: AiProfileMemberMetadata = {
+      personName: typeof parsed.personName === 'string' ? parsed.personName.trim() : fallback.personName,
+      memberNickname:
+        typeof parsed.memberNickname === 'string' ? parsed.memberNickname.trim() : fallback.memberNickname,
+      gender: typeof parsed.gender === 'string' ? parsed.gender.trim() : fallback.gender,
+      age: typeof parsed.age === 'string' ? parsed.age.trim() : fallback.age,
+      activityRegion:
+        typeof parsed.activityRegion === 'string' ? parsed.activityRegion.trim() : fallback.activityRegion,
+      averageScore:
+        typeof parsed.averageScore === 'string' ? parsed.averageScore.trim() : fallback.averageScore,
+      golfExperience:
+        typeof parsed.golfExperience === 'string' ? parsed.golfExperience.trim() : fallback.golfExperience,
+      monthlyRounds:
+        typeof parsed.monthlyRounds === 'string' ? parsed.monthlyRounds.trim() : fallback.monthlyRounds,
+      overseasGolfCount:
+        typeof parsed.overseasGolfCount === 'string'
+          ? parsed.overseasGolfCount.trim()
+          : fallback.overseasGolfCount,
+      favoriteGolfCourse:
+        typeof parsed.favoriteGolfCourse === 'string'
+          ? parsed.favoriteGolfCourse.trim()
+          : fallback.favoriteGolfCourse,
+      introduction:
+        typeof parsed.introduction === 'string' ? parsed.introduction.trim() : fallback.introduction,
+    };
+
+    if (!metadata.personName || !metadata.memberNickname) return fallback;
+    return metadata;
+  } catch (error) {
+    console.error('[AI-PROMPT] 가상 회원 메타데이터 생성 실패:', error);
+    return fallback;
+  }
 };
 
 type AiPromptEnglishUserFields = {
-  /** 통합 프롬프트(English)·세부 항목 영문 열용 */
-  actionEn: string;
   /** 통합 프롬프트(English)·세부 항목 영문 열용; 비어 있으면 직접 입력 없음 */
   customEn: string;
 };
 
 const composeAiPromptContent = (input: UserInput, enUser: AiPromptEnglishUserFields): GeneratedContent => {
-  const selectedAdditional = (input.aiPromptAdditionalOptions || [])
-    .map((id) => AI_PROMPT_ADDITIONAL_OPTIONS.find((option) => option.id === id))
-    .filter((option): option is (typeof AI_PROMPT_ADDITIONAL_OPTIONS)[number] => Boolean(option));
+  const removeAiEffect = Boolean(input.aiPromptRemoveAiEffect);
 
   const ageEn = input.aiPromptAge?.trim()
     ? `${input.aiPromptAge.trim().replace(/세$/, '')}-year-old`
@@ -197,96 +258,83 @@ const composeAiPromptContent = (input: UserInput, enUser: AiPromptEnglishUserFie
   const nationalityKo = findOptionLabel(AI_PROMPT_NATIONALITY_OPTIONS, nationalityEn);
   const genderEn = input.aiPromptGender || AI_PROMPT_GENDER_OPTIONS[0].value;
   const genderKo = findOptionLabel(AI_PROMPT_GENDER_OPTIONS, genderEn);
-  const hairEn = input.aiPromptHair || AI_PROMPT_HAIR_OPTIONS[0].value;
-  const hairKo = findOptionLabel(AI_PROMPT_HAIR_OPTIONS, hairEn);
-  const skinEn = input.aiPromptSkin || AI_PROMPT_SKIN_OPTIONS[0].value;
-  const skinKo = findOptionLabel(AI_PROMPT_SKIN_OPTIONS, skinEn);
-  const clothingEn = input.aiPromptClothing || AI_PROMPT_CLOTHING_OPTIONS[0].value;
-  const clothingKo = findOptionLabel(AI_PROMPT_CLOTHING_OPTIONS, clothingEn);
-  const clothingColorEn = input.aiPromptClothingColor || AI_PROMPT_CLOTHING_COLOR_OPTIONS[0].value;
-  const clothingColorKo = findOptionLabel(AI_PROMPT_CLOTHING_COLOR_OPTIONS, clothingColorEn);
-  const actionKo = input.aiPromptActionPose?.trim() || '자연스러운 골프 포즈';
-  const actionEn = enUser.actionEn;
-  const cameraAngleEn = input.aiPromptCameraAngle || AI_PROMPT_CAMERA_ANGLE_OPTIONS[0].value;
-  const cameraAngleKo = findOptionLabel(AI_PROMPT_CAMERA_ANGLE_OPTIONS, cameraAngleEn);
   const backgroundEn = input.aiPromptBackground || AI_PROMPT_BACKGROUND_OPTIONS[0].value;
   const backgroundKo = findOptionLabel(AI_PROMPT_BACKGROUND_OPTIONS, backgroundEn);
-  const lightingEn = input.aiPromptLighting || AI_PROMPT_LIGHTING_OPTIONS[0].value;
-  const lightingKo = findOptionLabel(AI_PROMPT_LIGHTING_OPTIONS, lightingEn);
-  const cameraLensEn = input.aiPromptCamera || AI_PROMPT_CAMERA_LENS_OPTIONS[0].value;
-  const cameraLensKo = findOptionLabel(AI_PROMPT_CAMERA_LENS_OPTIONS, cameraLensEn);
-  const photoStyleEn = input.aiPromptPhotoStyle || AI_PROMPT_PHOTO_STYLE_OPTIONS[0].value;
-  const photoStyleKo = findOptionLabel(AI_PROMPT_PHOTO_STYLE_OPTIONS, photoStyleEn);
   const aspectRatioVal = input.aspectRatio?.trim();
   const aspectRatioKo = aspectRatioVal ? findOptionLabel(ASPECT_RATIOS, aspectRatioVal) : '';
   const aspectRatioEn = aspectRatioVal || '';
   const customKo = input.aiPromptCustomInput?.trim() ?? '';
   const customEn = enUser.customEn.trim();
-  const additionalEn = selectedAdditional.map((option) => option.prompt).join(', ');
-  const additionalKo = selectedAdditional.map((option) => option.label).join(', ') || '선택 없음';
-  const outfitEn = clothingColorEn === 'unspecified outfit color'
-    ? clothingEn
-    : `${clothingColorEn} ${clothingEn}`;
-  const outfitKo = clothingColorKo === '컬러 특정 없음'
-    ? clothingKo
-    : `${clothingColorKo} ${clothingKo}`;
+  const styleParagraphEn = buildTeeshotVirtualMemberProfileEnglishParagraph(input);
+  const teeshotEnabled = isTeeshotVirtualMemberProfileEnabled(input);
+  const teeshotKoSummary = buildTeeshotVirtualMemberProfileKoreanSummary(input);
+  const teeshotDetailLines = buildTeeshotVirtualMemberProfileDetailLines(input);
 
   const englishPromptParts = [
-    `A highly realistic ${photoStyleEn} of a ${ageEn} ${nationalityEn} ${genderEn}`,
-    `with ${hairEn}`,
-    skinEn,
-    `wearing ${outfitEn}`,
-    actionEn,
-    `${cameraAngleEn} at ${backgroundEn}`,
-    lightingEn,
-    `Lens / body: ${cameraLensEn}`,
+    teeshotEnabled
+      ? `A casual smartphone golf profile photo of a ${ageEn} ${nationalityEn} ${genderEn}, amateur snapshot quality, not a professional portrait`
+      : `A highly realistic portrait photo of a ${ageEn} ${nationalityEn} ${genderEn}`,
+    teeshotEnabled ? `Regional golf course atmosphere: ${backgroundEn}` : `Background setting: ${backgroundEn}`,
     aspectRatioEn ? `Output image aspect ratio: ${aspectRatioEn}` : '',
-    additionalEn,
     customEn ? `Additional direction: ${customEn}` : '',
   ].filter(Boolean);
 
+  const ageNumStr = normalizeAiProfileAge(input.aiPromptAge);
+  const ageNum = ageNumStr ? parseInt(ageNumStr, 10) : NaN;
+  const ageEnforcementEn =
+    ageNumStr && !Number.isNaN(ageNum)
+      ? `Mandatory subject age: The person must clearly appear ${ageEn}. ${buildAgeAppearanceGuidance(ageNum)}. Do NOT depict them younger than ${ageNumStr} years old.`
+      : '';
+
   const koreanPromptParts = [
-    `${ageKo} ${nationalityKo} ${genderKo} 인물을 담은 매우 사실적인 ${photoStyleKo}`,
-    `머리는 ${hairKo}`,
-    `피부는 ${skinKo}`,
-    `의상은 ${outfitKo}`,
-    `포즈 및 액션은 ${actionKo}`,
-    `${backgroundKo} 배경의 ${cameraAngleKo}`,
-    `${lightingKo} 조명`,
-    `촬영 기종·렌즈: ${cameraLensKo}`,
+    teeshotEnabled
+      ? `${ageKo} ${nationalityKo} ${genderKo} 인물의 일반 스마트폰 골프 프로필 사진(아마추어 스냅샷, 전문 인물사진 아님)`
+      : `${ageKo} ${nationalityKo} ${genderKo} 인물을 담은 매우 사실적인 초상 사진`,
+    teeshotEnabled
+      ? `배경: ${backgroundKo} (야외 골프장 필드만 — 연습장·실내·간판·글자 없음)`
+      : `배경: ${backgroundKo}`,
     aspectRatioKo ? `이미지 비율(종횡비): ${aspectRatioKo}` : '',
-    additionalKo !== '선택 없음' ? `추가 옵션: ${additionalKo}` : '',
+    teeshotKoSummary,
+    removeAiEffect ? AI_EFFECT_REMOVAL_KOREAN_SUMMARY : '',
     customKo ? `직접 입력 반영: ${customKo}` : '',
   ].filter(Boolean);
 
-  const englishMainPrompt = `${englishPromptParts.join(', ')}.`;
+  const englishMainPrompt = [
+    `${englishPromptParts.join(', ')}.`,
+    ageEnforcementEn,
+    styleParagraphEn,
+    removeAiEffect ? buildAiEffectRemovalEnglishBlock({ includeTeeshotSnapshotRules: teeshotEnabled }) : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   const koreanMainPrompt = `${koreanPromptParts.join(', ')}.`;
-  const effectRemoval = input.aiPromptRemoveAiEffect
-    ? `\n\n(Positive Suffix): ${AI_EFFECT_REMOVAL_POSITIVE_SUFFIX}\n\n(Negative Prompt): ${AI_EFFECT_REMOVAL_NEGATIVE_PROMPT}`
-    : '';
 
   const directLine = customKo
     ? `- 직접 입력: ${customKo} / ${customEn || customKo}`
     : '- 직접 입력: 없음';
+  const teeshotDetailBlock = teeshotDetailLines.length > 0 ? `\n${teeshotDetailLines.join('\n')}` : '';
+
+  const aiPromptTypeKo = input.aiPromptType || AI_PROMPT_TYPES[0];
+  const aiPromptTypeEn = AI_PROMPT_TYPE_LABELS[aiPromptTypeKo as (typeof AI_PROMPT_TYPES)[number]] ?? aiPromptTypeKo;
+
+  const aiEffectRemovalDetail = removeAiEffect
+    ? `적용 (${AI_EFFECT_REMOVAL_KOREAN_SNAPSHOT_RULES}, 비대칭·기울어진 구도·손떨림 필수, 전체적으로 약간 어둡고 노출 실패한 어색한 밝기 포함)`
+    : '미적용';
 
   return {
-    content: `## 통합 프롬프트 (English)\n${englishMainPrompt}${effectRemoval}\n\n## 통합 프롬프트 (한국어)\n${koreanMainPrompt}${effectRemoval}\n\n## 옵션별 세부 프롬프트\n- AI 효과 제거: ${input.aiPromptRemoveAiEffect ? '적용' : '미적용'}\n- 이미지 비율: ${aspectRatioKo || '미지정'} / ${aspectRatioEn || 'unspecified'}\n- AI 유형: ${input.aiPromptType || 'AI 인물'} / AI person\n- 국적: ${nationalityKo} / ${nationalityEn}\n- 성별: ${genderKo} / ${genderEn}\n- 나이: ${ageKo} / ${ageEn}\n- 머리: ${hairKo} / ${hairEn}\n- 피부: ${skinKo} / ${skinEn}\n- 의상: ${clothingKo} / ${clothingEn}\n- 의상 컬러: ${clothingColorKo} / ${clothingColorEn}\n- 포즈 및 액션: ${actionKo} / ${actionEn}\n- 카메라 앵글: ${cameraAngleKo} / ${cameraAngleEn}\n- 배경: ${backgroundKo} / ${backgroundEn}\n- 조명효과: ${lightingKo} / ${lightingEn}\n- 카메라 렌즈: ${cameraLensKo} / ${cameraLensEn}\n- 사진 품질 및 스타일: ${photoStyleKo} / ${photoStyleEn}\n- 추가 옵션: ${additionalKo}${additionalEn ? ` / ${additionalEn}` : ''}\n${directLine}`,
+    content: `## 통합 프롬프트 (English)\n${englishMainPrompt}\n\n## 통합 프롬프트 (한국어)\n${koreanMainPrompt}\n\n## 옵션별 세부 프롬프트\n- AI 효과 제거: ${aiEffectRemovalDetail}\n- 이미지 비율: ${aspectRatioKo || '미지정'} / ${aspectRatioEn || 'unspecified'}\n- AI 유형: ${aiPromptTypeKo} / ${aiPromptTypeEn}\n- 국적: ${nationalityKo} / ${nationalityEn}\n- 성별: ${genderKo} / ${genderEn}\n- 나이: ${ageKo} / ${ageEn}\n- 배경: ${backgroundKo} / ${backgroundEn}${teeshotDetailBlock}\n${directLine}`,
     suggestions: [],
     sources: [],
   };
 };
 
 const buildAiPromptContentAsync = async (input: UserInput): Promise<GeneratedContent> => {
-  const rawPose = input.aiPromptActionPose?.trim() ?? '';
   const rawNote = input.aiPromptCustomInput?.trim() ?? '';
-
-  const poseNeedsTr = needsEnglishTranslationForAiPrompt(rawPose);
   const noteNeedsTr = needsEnglishTranslationForAiPrompt(rawNote);
 
-  let actionEn = rawPose || 'natural candid golf pose';
   let customEn = rawNote;
 
-  if (poseNeedsTr || noteNeedsTr) {
+  if (noteNeedsTr) {
     if (!process.env.API_KEY) {
       console.warn(
         '[AI-PROMPT] 한글 등 비영어 입력이 있으나 API_KEY가 없어 번역을 건너뜁니다. 영문 통합 프롬프트에 원문이 섞일 수 있습니다.'
@@ -294,26 +342,23 @@ const buildAiPromptContentAsync = async (input: UserInput): Promise<GeneratedCon
     } else {
       try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const { pose_en, note_en } = await translateAiPromptPoseAndNote(ai, rawPose, rawNote);
-        if (rawPose) {
-          actionEn = (poseNeedsTr && pose_en.trim()) ? pose_en.trim() : rawPose;
-        } else {
-          actionEn = 'natural candid golf pose';
-        }
-        if (rawNote) {
-          customEn = (noteNeedsTr && note_en.trim()) ? note_en.trim() : rawNote;
-        } else {
-          customEn = '';
-        }
+        const { note_en } = await translateAiPromptCustomNote(ai, rawNote);
+        customEn = noteNeedsTr && note_en.trim() ? note_en.trim() : rawNote;
       } catch (e) {
-        console.error('[AI-PROMPT] 포즈·직접 입력 번역 실패:', e);
-        actionEn = rawPose || 'natural candid golf pose';
+        console.error('[AI-PROMPT] 직접 입력 번역 실패:', e);
         customEn = rawNote;
       }
     }
   }
 
-  return composeAiPromptContent(input, { actionEn, customEn });
+  const base = composeAiPromptContent(input, { customEn });
+  const memberMetadata = await generateAiProfileMemberMetadata(input);
+  const memberSection = formatAiProfileMemberMetadataSection(memberMetadata);
+
+  return {
+    ...base,
+    content: `${base.content}\n\n## 가상 회원 프로필 (시트용)\n${memberSection}`,
+  };
 };
 
 const formatUserInput = async (input: UserInput): Promise<string> => {
@@ -893,6 +938,10 @@ export type GenerateImageOptions = {
   /** Gemini imageConfig.imageSize — 512(0.5K), 1K, 2K, 4K */
   imageSize?: '512' | '1K' | '2K' | '4K';
   referenceImages?: Array<{ mimeType: string; data: string }>;
+  /** AI 프로필: 동일 인물 유지용 참조 사진 */
+  identityReferenceImages?: Array<{ mimeType: string; data: string }>;
+  /** true면 참조는 얼굴·체형 동일성만 — 의상·포즈·배경·구도는 자유 변경 (프로필 외 이미지용) */
+  identityReferenceFaceOnly?: boolean;
   /** 배경만 생성 후 앱에서 한글 타이포를 UI로 합성할 때: 레퍼런스 복제 완화·안전 영역 강조 */
   typographySafeBackground?: boolean;
   /**
@@ -937,6 +986,8 @@ export const generateImage = async (
     modelId,
     'referenceCount:',
     options?.referenceImages?.length ?? 0,
+    'identityRefCount:',
+    options?.identityReferenceImages?.length ?? 0,
     'editSource:',
     Boolean(options?.editSourceImage?.data)
   );
@@ -944,6 +995,21 @@ export const generateImage = async (
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+  if (options?.identityReferenceImages?.length) {
+    const identityIntro = options.identityReferenceFaceOnly
+      ? 'Reference image(s) below: use ONLY to match the same person (face identity, exact age as specified in the prompt, gender presentation, skin tone, body type). ' +
+        'DO NOT copy the reference pose, posture, camera angle, framing, background, lighting, or clothing. ' +
+        'Create a clearly different photo as instructed in the prompt. Different golf outfits are allowed and encouraged.'
+      : 'Reference image(s) below show the EXACT person who must appear in the generated photo. ' +
+        'Preserve the same face identity, age, skin tone, hairstyle, body type, and overall appearance. ' +
+        'Only change pose, camera angle, distance, or background composition as instructed in the prompt.';
+    parts.push({ text: identityIntro });
+    for (const img of options.identityReferenceImages.slice(0, 3)) {
+      if (img.data && img.mimeType) {
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+      }
+    }
+  }
   if (options?.referenceImages?.length) {
     const refBackgroundPlate =
       'Reference image(s) below: use ONLY as design inspiration — composition, color palette, graphic style, spacing rhythm, and overall mood. ' +

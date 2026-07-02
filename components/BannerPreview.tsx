@@ -89,7 +89,7 @@ export const BannerPreview: React.FC<BannerPreviewProps> = ({
           type="button"
           onClick={handleDownloadComposite}
           disabled={exporting || !hasAnyText}
-          className="rounded-lg bg-[#004B49] px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-[#003a38] disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-[#006B68] px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-[#005552] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {exporting ? '저장 중…' : '합성 이미지 다운로드 (PNG)'}
         </button>
