@@ -41,6 +41,42 @@ const formatIcons: { [key: string]: React.FC<React.SVGProps<SVGSVGElement>> } = 
   'AI-PROMPT': SparklesIcon,
 };
 
+const FORMAT_OPTION_STYLES: Record<
+  string,
+  { selected: string; unselected: string; iconUnselected: string }
+> = {
+  'INSTAGRAM-CARD': {
+    selected: 'border-transparent bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 text-white shadow-lg',
+    unselected:
+      'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-black dark:text-gray-100 dark:hover:bg-gray-700',
+    iconUnselected: 'text-[#E4405F]',
+  },
+  'NAVER-BLOG/BAND': {
+    selected: 'border-transparent bg-[#03C75A] text-white shadow-lg',
+    unselected:
+      'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-black dark:text-gray-100 dark:hover:bg-gray-700',
+    iconUnselected: 'text-[#03C75A]',
+  },
+  'YOUTUBE-SHORTFORM': {
+    selected: 'border-transparent bg-[#FF0000] text-white shadow-lg',
+    unselected:
+      'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-black dark:text-gray-100 dark:hover:bg-gray-700',
+    iconUnselected: 'text-[#FF0000]',
+  },
+  'ETC-BANNER': {
+    selected: 'border-transparent bg-[#F97000] text-white shadow-lg',
+    unselected:
+      'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-black dark:text-gray-100 dark:hover:bg-gray-700',
+    iconUnselected: 'text-[#F97000]',
+  },
+  'AI-PROMPT': {
+    selected: 'border-transparent bg-blue-600 text-white shadow-lg dark:bg-blue-500',
+    unselected:
+      'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-black dark:text-gray-100 dark:hover:bg-gray-700',
+    iconUnselected: 'text-blue-600 dark:text-blue-400',
+  },
+};
+
 
 const BANNER_CONTENT_TYPE_OPTIONS: { value: BannerContentType; label: string }[] = [
   { value: '일반', label: '일반' },
@@ -253,6 +289,8 @@ export const InputForm: React.FC<InputFormProps> = ({
   const [aiPromptBackgroundCustom, setAiPromptBackgroundCustom] = useState('');
   const [aiPromptRemoveAiEffect, setAiPromptRemoveAiEffect] = useState(false);
   const [aiPromptCustomInput, setAiPromptCustomInput] = useState('');
+  const [aiPromptCustomReferenceFile, setAiPromptCustomReferenceFile] = useState<File | null>(null);
+  const [aiPromptCustomReferenceObjectUrl, setAiPromptCustomReferenceObjectUrl] = useState<string | null>(null);
   const [aiPromptTeeshotPose, setAiPromptTeeshotPose] = useState(TEESHOT_MEMBER_POSE_OPTIONS[0].value);
   const [aiPromptTeeshotViewAngle, setAiPromptTeeshotViewAngle] = useState(TEESHOT_MEMBER_VIEW_OPTIONS[0].value);
   const [aiPromptTeeshotCameraDistance, setAiPromptTeeshotCameraDistance] = useState(
@@ -297,6 +335,7 @@ export const InputForm: React.FC<InputFormProps> = ({
     aiPromptBackground: resolved.aiPromptBackground,
     aiPromptRemoveAiEffect: resolved.aiPromptRemoveAiEffect,
     aiPromptCustomInput: aiPromptCustomInput.trim() ? aiPromptCustomInput.trim() : undefined,
+    aiPromptCustomReferenceImage: undefined,
     aiPromptTeeshotPose: resolved.aiPromptTeeshotPose,
     aiPromptTeeshotViewAngle: resolved.aiPromptTeeshotViewAngle,
     aiPromptTeeshotCameraDistance: resolved.aiPromptTeeshotCameraDistance,
@@ -304,8 +343,19 @@ export const InputForm: React.FC<InputFormProps> = ({
   useEffect(() => {
     return () => {
       if (bannerDesignReferenceObjectUrl) URL.revokeObjectURL(bannerDesignReferenceObjectUrl);
+      if (aiPromptCustomReferenceObjectUrl) URL.revokeObjectURL(aiPromptCustomReferenceObjectUrl);
     };
-  }, [bannerDesignReferenceObjectUrl]);
+  }, [bannerDesignReferenceObjectUrl, aiPromptCustomReferenceObjectUrl]);
+
+  useEffect(() => {
+    if (format !== 'AI-PROMPT') {
+      setAiPromptCustomReferenceFile(null);
+      setAiPromptCustomReferenceObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    }
+  }, [format]);
 
   useEffect(() => {
     if (format !== 'ETC-BANNER') {
@@ -403,6 +453,61 @@ export const InputForm: React.FC<InputFormProps> = ({
     });
   };
 
+  const handleAiPromptCustomReferenceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) {
+      setAiPromptCustomReferenceFile(null);
+      setAiPromptCustomReferenceObjectUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      return;
+    }
+    if (f.size > 7 * 1024 * 1024) {
+      alert('참고 이미지는 7MB 이하만 업로드할 수 있습니다.');
+      e.target.value = '';
+      return;
+    }
+    if (!/^image\/(png|jpeg|jpg|webp)$/i.test(f.type)) {
+      alert('PNG, JPEG, WebP 이미지만 지원합니다.');
+      e.target.value = '';
+      return;
+    }
+    setAiPromptCustomReferenceFile(f);
+    setAiPromptCustomReferenceObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(f);
+    });
+  };
+
+  const clearAiPromptCustomReference = () => {
+    setAiPromptCustomReferenceFile(null);
+    setAiPromptCustomReferenceObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  };
+
+  const readAiPromptCustomReferenceImage = async (): Promise<UserInput['aiPromptCustomReferenceImage']> => {
+    if (!aiPromptCustomReferenceFile) return undefined;
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(aiPromptCustomReferenceFile);
+      });
+      const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!m) return undefined;
+      let mimeType = m[1].trim();
+      if (mimeType === 'image/jpg') mimeType = 'image/jpeg';
+      return { mimeType, dataBase64: m[2] };
+    } catch {
+      alert('참고 이미지를 읽는 데 실패했습니다.');
+      return undefined;
+    }
+  };
+
   const isVirtualProfileType =
     aiPromptType === '가상 프로필 생성하기' || aiPromptType === AI_PROMPT_RANDOM_VALUE;
 
@@ -455,6 +560,14 @@ export const InputForm: React.FC<InputFormProps> = ({
       aiProfileResolved = resolveAiProfileForm(getAiProfileFormSnapshot());
     }
 
+    let aiPromptCustomReferenceImage: UserInput['aiPromptCustomReferenceImage'];
+    if (isAiPromptFormat && aiPromptCustomReferenceFile) {
+      aiPromptCustomReferenceImage = await readAiPromptCustomReferenceImage();
+      if (aiPromptCustomReferenceFile && !aiPromptCustomReferenceImage) {
+        return;
+      }
+    }
+
     const userInput: UserInput = {
       isGolfRelated,
       category:
@@ -500,6 +613,7 @@ export const InputForm: React.FC<InputFormProps> = ({
       aiPromptBackground: isAiPromptFormat ? aiProfileResolved!.aiPromptBackground : undefined,
       aiPromptRemoveAiEffect: isAiPromptFormat ? aiProfileResolved!.aiPromptRemoveAiEffect : undefined,
       aiPromptCustomInput: isAiPromptFormat && aiPromptCustomInput.trim() ? aiPromptCustomInput.trim() : undefined,
+      aiPromptCustomReferenceImage: isAiPromptFormat ? aiPromptCustomReferenceImage : undefined,
       aiPromptTeeshotPose: isAiPromptFormat ? aiProfileResolved!.aiPromptTeeshotPose : undefined,
       aiPromptTeeshotViewAngle: isAiPromptFormat ? aiProfileResolved!.aiPromptTeeshotViewAngle : undefined,
       aiPromptTeeshotCameraDistance: isAiPromptFormat ? aiProfileResolved!.aiPromptTeeshotCameraDistance : undefined,
@@ -560,13 +674,19 @@ export const InputForm: React.FC<InputFormProps> = ({
     onGenerate(userInput);
   };
 
-  const handleQuickAiPromptGenerate = () => {
+  const handleQuickAiPromptGenerate = async () => {
     const resolved = resolveAiProfileForm(getAiProfileFormSnapshot());
-    onGenerate(buildAiProfileUserInput(resolved));
+    const aiPromptCustomReferenceImage = await readAiPromptCustomReferenceImage();
+    if (aiPromptCustomReferenceFile && !aiPromptCustomReferenceImage) return;
+    onGenerate({
+      ...buildAiProfileUserInput(resolved),
+      aiPromptCustomReferenceImage,
+    });
   };
 
-  const commonInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 px-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006B68] focus:border-[#006B68] transition-colors placeholder:text-gray-400 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:ring-[#006B68]/70 dark:focus:border-[#006B68]";
-  const selectInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-10 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006B68] focus:border-[#006B68] transition-colors cursor-pointer dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:focus:ring-[#006B68]/70 dark:focus:border-[#006B68]";
+  const commonInputClass = "w-full bg-gray-100 border border-gray-300 rounded-md py-2 px-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006B68] focus:border-[#006B68] transition-colors placeholder:text-gray-400 dark:bg-black dark:border-gray-600 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:ring-[#006B68]/70 dark:focus:border-[#006B68]";
+  const selectInputClass =
+    "w-full appearance-none bg-gray-100 bg-[length:1.125rem_1.125rem] bg-[position:right_0.75rem_center] bg-no-repeat bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] border border-gray-300 rounded-md py-2 pl-3 pr-11 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006B68] focus:border-[#006B68] transition-colors cursor-pointer dark:bg-black dark:bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] dark:border-gray-600 dark:text-gray-100 dark:focus:ring-[#006B68]/70 dark:focus:border-[#006B68]";
   const commonLabelClass = "block text-sm font-medium text-gray-600 dark:text-gray-300";
 
   const renderAiPromptSelect = (
@@ -646,10 +766,14 @@ export const InputForm: React.FC<InputFormProps> = ({
               role="switch"
               aria-checked={isGolfRelated}
               onClick={() => setIsGolfRelated(!isGolfRelated)}
-              className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${isGolfRelated ? 'bg-gray-900' : 'bg-gray-200'}`}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                isGolfRelated ? 'bg-[#006B68]' : 'bg-gray-200 dark:bg-gray-600'
+              }`}
             >
               <span
-                className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isGolfRelated ? 'translate-x-6' : 'translate-x-1'}`}
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                  isGolfRelated ? 'translate-x-6' : 'translate-x-1'
+                }`}
               />
             </div>
           </label>
@@ -660,52 +784,24 @@ export const InputForm: React.FC<InputFormProps> = ({
         <div className="grid grid-cols-5 gap-2">
           {FORMATS.map(f => {
             const Icon = formatIcons[f];
-            
-            // 포맷별 색상 정의
-            const formatColors = {
-              'INSTAGRAM-CARD': {
-                selected:
-                  'border-transparent bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 text-white shadow-lg',
-                unselected:
-                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
-              },
-              'NAVER-BLOG/BAND': {
-                selected: 'border-transparent bg-[#03C75A] text-white shadow-lg',
-                unselected:
-                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
-              },
-              'YOUTUBE-SHORTFORM': {
-                selected: 'border-transparent bg-[#FF0000] text-white shadow-lg',
-                unselected:
-                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
-              },
-              'ETC-BANNER': {
-                selected: 'border-transparent bg-gray-900 text-white shadow-lg',
-                unselected:
-                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
-              },
-              'AI-PROMPT': {
-                selected: 'border-transparent bg-gray-900 text-white shadow-lg',
-                unselected:
-                  'border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700',
-              },
-            };
-
-            const colorClass =
-              format === f ? formatColors[f].selected : formatColors[f].unselected;
+            const styles = FORMAT_OPTION_STYLES[f];
+            const isSelected = format === f;
+            const colorClass = isSelected ? styles.selected : styles.unselected;
 
             return (
               <button
                 key={f}
                 type="button"
                 onClick={() => setFormat(f)}
-                className={`flex flex-col items-center justify-center gap-1.5 p-2 text-sm font-medium rounded-lg text-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 aspect-square ${colorClass} ${
-                  format === f ? 'scale-105 ring-2 ring-white ring-offset-2' : 'scale-100'
+                className={`flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg p-2 text-center text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 dark:focus:ring-offset-gray-900 ${colorClass} ${
+                  isSelected
+                    ? 'scale-105 ring-2 ring-white ring-offset-2 dark:ring-gray-300 dark:ring-offset-gray-900'
+                    : 'scale-100'
                 }`}
               >
                 {Icon && (
                   <Icon
-                    className={`w-6 h-6 flex-shrink-0 ${format === f ? 'text-white' : 'text-gray-900'}`}
+                    className={`h-6 w-6 flex-shrink-0 ${isSelected ? 'text-white' : styles.iconUnselected}`}
                   />
                 )}
                 <span className="text-xs font-semibold leading-tight">{FORMAT_LABELS[f]}</span>
@@ -716,7 +812,7 @@ export const InputForm: React.FC<InputFormProps> = ({
       </div>
 
       {format === 'AI-PROMPT' && (
-        <div className="space-y-5 rounded-xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+        <div className="space-y-5 rounded-xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-black">
           <p className="text-xs text-gray-600 dark:text-gray-400">
             각 드롭다운에서 <span className="font-medium text-[#006B68]">랜덤</span>을 선택하면 생성 시 해당 항목만 무작위로 정해집니다.
           </p>
@@ -826,7 +922,7 @@ export const InputForm: React.FC<InputFormProps> = ({
               <div>
                 <span className={`${commonLabelClass} mb-2 block`}>추가 옵션</span>
                 <div className="space-y-2">
-                  <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 text-sm cursor-pointer dark:border-gray-600 dark:bg-gray-900">
+                  <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 text-sm cursor-pointer dark:border-gray-600 dark:bg-black">
                     <input
                       type="checkbox"
                       checked={aiPromptRemoveAiEffect}
@@ -847,7 +943,7 @@ export const InputForm: React.FC<InputFormProps> = ({
                 <label htmlFor="aiPromptCustomInput" className={`${commonLabelClass} mb-1`}>
                   직접 입력란
                 </label>
-                <span className="mb-1 block text-xs text-gray-400">(선택)</span>
+                <span className="mb-1 block text-xs text-gray-400 dark:text-gray-500">(선택)</span>
                 <textarea
                   id="aiPromptCustomInput"
                   value={aiPromptCustomInput}
@@ -855,6 +951,43 @@ export const InputForm: React.FC<InputFormProps> = ({
                   className={`${commonInputClass} h-28`}
                   placeholder="포즈, 의상, 배경, 조명, 카메라, 스타일 등 추가로 반영할 내용을 한글로 입력하세요."
                 />
+                <div className="mt-3">
+                  <label htmlFor="aiPromptCustomReference" className={`${commonLabelClass} mb-1`}>
+                    참고 이미지 <span className="text-gray-400 font-normal text-xs">(선택)</span>
+                  </label>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    프로필 이미지 생성 시 포즈·의상·구도·조명·무드를 참고합니다. 가상 프로필의 얼굴·나이 등은 위 옵션과 통합 프롬프트를 우선합니다.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      id="aiPromptCustomReference"
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      onChange={handleAiPromptCustomReferenceChange}
+                      className="block w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:rounded-md file:border-0 file:bg-gray-800 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-gray-900 dark:file:bg-gray-700 dark:hover:file:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    {aiPromptCustomReferenceObjectUrl && (
+                      <>
+                        <img
+                          src={aiPromptCustomReferenceObjectUrl}
+                          alt="참고 이미지 미리보기"
+                          className="h-16 w-auto max-w-[120px] rounded border border-gray-200 dark:border-gray-600 object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            clearAiPromptCustomReference();
+                            const el = document.getElementById('aiPromptCustomReference') as HTMLInputElement | null;
+                            if (el) el.value = '';
+                          }}
+                          className="text-xs text-gray-600 underline dark:text-gray-400"
+                        >
+                          제거
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
             </>
           )}
@@ -1420,14 +1553,14 @@ export const InputForm: React.FC<InputFormProps> = ({
           </>
           )}
 
-          <div className="rounded-xl border-2 border-gray-200 bg-gray-50 p-4 mt-2 dark:border-gray-700 dark:bg-gray-800/60">
+          <div className="rounded-xl border-2 border-gray-200 bg-gray-50 p-4 mt-2 dark:border-gray-700 dark:bg-black">
             <button
               type="button"
               onClick={() => setBannerAutoFillEmptyFields((v) => !v)}
               className={`w-full rounded-lg px-4 py-3 text-left text-sm font-medium transition-all border-2 ${
                 bannerAutoFillEmptyFields
-                  ? 'border-gray-900 bg-white text-gray-900 shadow-sm dark:border-gray-400 dark:bg-gray-900 dark:text-gray-100'
-                  : 'border-transparent bg-white/70 text-gray-800 hover:border-gray-400 dark:bg-gray-900/70 dark:text-gray-200 dark:hover:border-gray-500'
+                  ? 'border-gray-900 bg-white text-gray-900 shadow-sm dark:border-gray-400 dark:bg-black dark:text-gray-100'
+                  : 'border-transparent bg-white/70 text-gray-800 hover:border-gray-400 dark:bg-black dark:text-gray-200 dark:hover:border-gray-500'
               }`}
             >
               <span className="flex items-center gap-2">

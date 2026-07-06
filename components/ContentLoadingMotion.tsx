@@ -1,24 +1,18 @@
 import React from 'react';
-import Lottie from 'lottie-react';
-import appIconMotion from '../assets/app-icon-motion.json';
+import { ParticleTextCanvas } from './ParticleTextCanvas';
 
-type ContentLoadingMotionProps = {
-  className?: string;
-};
+const CONTENT_PARTICLE_GRAY: [number, number, number, number] = [156, 163, 175, 255];
 
-export const ContentLoadingMotion: React.FC<ContentLoadingMotionProps> = ({ className = '' }) => {
+export const ContentLoadingMotion: React.FC = () => {
   return (
-    <div
-      className={`flex flex-col items-center justify-center h-full min-h-[calc(100vh-20rem)] ${className}`}
-      role="img"
-      aria-label="TeeShot"
-    >
-      <Lottie
-        animationData={appIconMotion}
-        loop
-        autoplay
-        className="h-40 w-40 opacity-40"
-        aria-hidden
+    <div className="relative h-[min(400px,46%)] w-full max-w-xl">
+      <ParticleTextCanvas
+        lines={['TEESHOT', 'DESIGN']}
+        sizeScale={0.72}
+        particleColor={CONTENT_PARTICLE_GRAY}
+        autoAnimate
+        idleOrbitScale={0.2}
+        className="absolute inset-0"
       />
     </div>
   );

@@ -1,10 +1,10 @@
 import type { ParsedAiPromptForSpreadsheet } from './aiPromptSpreadsheet';
-import { buildTeeshotVirtualMemberImageEnforcement } from './teeshotVirtualMemberProfile';
 import {
   AI_EFFECT_REMOVAL_IMAGE_FINAL_REMINDER,
   AI_EFFECT_REMOVAL_IMAGE_PRIORITY_HEADER,
   buildAiEffectRemovalImageEnforcement,
   buildTeeshotCameraDistanceImageFinalReminder,
+  buildTeeshotCameraDistanceImagePreamble,
   parseTeeshotCameraDistanceFromDetail,
 } from '../constants';
 
@@ -67,14 +67,12 @@ const promptIncludesAgeEnforcement = (englishPrompt: string): boolean =>
   englishPrompt.includes('Mandatory subject age:') ||
   englishPrompt.includes('CRITICAL — SUBJECT IDENTITY');
 
-const promptIncludesCameraDistance = (englishPrompt: string): boolean =>
-  englishPrompt.includes('CRITICAL — camera distance (MUST apply; non-negotiable)');
-
 /** 프로필 이미지 생성 — 통합 English 프롬프트 + 누락 시에만 짧게 보강 (중복 주입 방지) */
 export const buildAiProfileImageGenerationPrompt = (
   englishPrompt: string,
   identity: AiProfileImageIdentity = {},
-  parsed?: ParsedAiPromptForSpreadsheet | null
+  parsed?: ParsedAiPromptForSpreadsheet | null,
+  cameraDistanceMetersOverride?: number | null
 ): string => {
   const trimmed = englishPrompt.trim();
   if (!trimmed) return '';
@@ -86,24 +84,19 @@ export const buildAiProfileImageGenerationPrompt = (
   const nationalityEn = identity.nationalityEn?.trim();
   const aiEffectRemovalActive = parsed?.detailFields['AI 효과 제거']?.includes('적용') ?? false;
   const isVirtualProfile = parsed?.detailFields['AI 유형']?.includes('가상 프로필') ?? false;
-  const cameraMeters = parsed
-    ? parseTeeshotCameraDistanceFromDetail(parsed.detailFields['티샷 가상회원 카메라 거리'])
-    : null;
+  const cameraMeters =
+    cameraDistanceMetersOverride ??
+    (parsed ? parseTeeshotCameraDistanceFromDetail(parsed.detailFields['티샷 가상회원 카메라 거리']) : null);
+  const shouldEnforceCameraDistance =
+    cameraMeters != null && (isVirtualProfile || cameraDistanceMetersOverride != null);
 
   const hasAiEffectInPrompt = promptIncludesAiEffectRemoval(trimmed);
   const hasAgeInPrompt = promptIncludesAgeEnforcement(trimmed);
-  const hasCameraDistanceInPrompt = promptIncludesCameraDistance(trimmed);
 
   const preambleBlocks: string[] = [];
 
-  if (isVirtualProfile && cameraMeters) {
-    if (hasCameraDistanceInPrompt) {
-      preambleBlocks.push(
-        `HIGHEST PRIORITY — CAMERA DISTANCE: ${cameraMeters}m (mandatory; do not frame closer than this setting).`
-      );
-    } else if (parsed) {
-      preambleBlocks.push(buildTeeshotVirtualMemberImageEnforcement(parsed.detailFields));
-    }
+  if (shouldEnforceCameraDistance) {
+    preambleBlocks.push(buildTeeshotCameraDistanceImagePreamble(cameraMeters));
   }
 
   if (aiEffectRemovalActive) {
@@ -151,7 +144,7 @@ export const buildAiProfileImageGenerationPrompt = (
   if (aiEffectRemovalActive) {
     tailBlocks.push(AI_EFFECT_REMOVAL_IMAGE_FINAL_REMINDER);
   }
-  if (isVirtualProfile && cameraMeters) {
+  if (shouldEnforceCameraDistance) {
     tailBlocks.push(buildTeeshotCameraDistanceImageFinalReminder(cameraMeters));
   }
 
@@ -160,7 +153,7 @@ export const buildAiProfileImageGenerationPrompt = (
   }
 
   const bridge =
-    aiEffectRemovalActive || (isVirtualProfile && cameraMeters)
+    aiEffectRemovalActive || shouldEnforceCameraDistance
       ? 'Creative brief below — camera distance and mandatory rules above take priority over any conflicting close portrait language:'
       : 'Full creative brief (constraints above override portrait-mode or youth bias in style notes):';
 

@@ -11,13 +11,13 @@ export const BTN_EMPHASIS =
   'bg-gray-900 hover:bg-gray-800 text-white font-medium transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed dark:bg-gray-100 dark:hover:bg-white dark:text-gray-900 dark:disabled:bg-gray-700 dark:disabled:text-gray-500';
 
 export const BTN_DEFAULT =
-  'bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 dark:disabled:bg-gray-800';
+  'bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed dark:bg-black dark:hover:bg-black dark:text-gray-200 dark:disabled:bg-black';
 
 export const BTN_MUTED =
-  'bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium transition-colors dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-300';
+  'bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium transition-colors dark:bg-black dark:hover:bg-black dark:text-gray-300';
 
 export const BTN_OUTLINE =
-  'border border-gray-300 bg-white hover:bg-gray-50 hover:border-gray-400 text-gray-800 font-medium transition-colors dark:border-gray-600 dark:bg-gray-900 dark:hover:bg-gray-800 dark:hover:border-gray-500 dark:text-gray-200';
+  'border border-gray-300 bg-white hover:bg-gray-50 hover:border-gray-400 text-gray-800 font-medium transition-colors dark:border-gray-600 dark:bg-black dark:hover:bg-black dark:hover:border-gray-500 dark:text-gray-200';
 
 export const BTN_CHIP =
-  'border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 font-medium transition-colors shadow-sm dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200';
+  'border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 font-medium transition-colors shadow-sm dark:border-gray-600 dark:bg-black dark:hover:bg-black dark:text-gray-200';

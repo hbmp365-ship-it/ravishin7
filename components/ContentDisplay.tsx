@@ -8,7 +8,7 @@ import {
 } from '../services/geminiService';
 import { uploadImageToS3 } from '../services/s3Service';
 import type { UserInput } from '../types';
-import { buildBannerImageGenerationPrompt, INSTAGRAM_CARD_IMAGE_MODEL_ID, AI_PROFILE_SPREADSHEET_ID, AI_PROFILE_SPREADSHEET_URL, AI_PROFILE_IMAGE_MODEL_ID, AI_PROFILE_IMAGE_SIZE, mapAspectRatioForGeminiImage, resolveAiProfileN8nWebhookUrl } from '../constants';
+import { buildBannerImageGenerationPrompt, INSTAGRAM_CARD_IMAGE_MODEL_ID, AI_PROFILE_SPREADSHEET_ID, AI_PROFILE_SPREADSHEET_URL, AI_PROFILE_IMAGE_MODEL_ID, AI_PROFILE_IMAGE_SIZE, mapAspectRatioForGeminiImage, parseTeeshotCameraDistanceFromDetail, parseTeeshotCameraDistanceMeters, resolveAiProfileN8nWebhookUrl } from '../constants';
 import {
   cleanGeneratedContent,
   extractInstagramCardImageSlots,
@@ -34,6 +34,11 @@ import {
   countGeneratedExtraProfileImages,
   getNextExtraProfileImageSlotId,
 } from '../utils/aiProfileExtraImages';
+import {
+  buildProfileGolfBackgroundSheetRef,
+  loadRandomGolfBackgroundReference,
+  type ProfileGolfBackgroundSheetRef,
+} from '../utils/aiProfileGolfBackgrounds';
 import {
   buildAiProfileImageGenerationPrompt,
   resolveAiProfileImageIdentity,
@@ -86,6 +91,10 @@ interface ContentDisplayProps {
   bannerDesignReferenceImage?: UserInput['bannerDesignReferenceImage'];
   /** 폼 하단 사용자 입력: 이미지 생성 시 API에 병합 */
   bannerAiImagePromptHint?: string;
+  /** AI 인물 직접 입력란 참고 이미지 */
+  aiPromptCustomReferenceImage?: UserInput['aiPromptCustomReferenceImage'];
+  /** AI 가상 프로필 — 폼에서 선택한 카메라 거리 (파싱 실패 시 fallback) */
+  aiPromptTeeshotCameraDistance?: string;
   onRequestInstaCardWithReferenceText?: (text: string) => void;
 }
 
@@ -249,7 +258,7 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
     return (
       <div className="space-y-3 mt-2">
         {renderEditPanel()}
-        <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg flex items-center justify-center aspect-square relative">
+        <div className="bg-gray-100 dark:bg-black p-3 rounded-lg flex items-center justify-center aspect-square relative">
           {status.url ? (
             <img src={status.url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" aria-hidden />
           ) : null}
@@ -279,7 +288,7 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
     return (
         <div className="space-y-3 mt-2">
           {renderEditPanel()}
-          <div className="bg-gray-100 dark:bg-gray-800 rounded-lg group relative aspect-square overflow-hidden border border-gray-200 dark:border-gray-700">
+          <div className="bg-gray-100 dark:bg-black rounded-lg group relative aspect-square overflow-hidden border border-gray-200 dark:border-gray-700">
             <img src={status.url} alt={text} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-center">
                  <p className="text-white text-xs mb-4 leading-snug max-h-24 overflow-auto">{text}</p>
@@ -292,7 +301,7 @@ const ImagePrompt: React.FC<ImagePromptProps> = ({ text, onGenerate, onSwitchToI
   }
   
   return (
-    <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg mt-2 flex items-center justify-between group">
+    <div className="bg-gray-100 dark:bg-black p-3 rounded-lg mt-2 flex items-center justify-between group">
       <p className={`${CONTENT_BODY_STRONG} text-sm font-mono flex-grow pr-2`}>📸 {text}</p>
       <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
@@ -332,6 +341,8 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   bannerCta,
   bannerDesignReferenceImage,
   bannerAiImagePromptHint,
+  aiPromptCustomReferenceImage,
+  aiPromptTeeshotCameraDistance,
   onRequestInstaCardWithReferenceText,
 }) => {
   const [copiedAll, setCopiedAll] = useState(false);
@@ -347,6 +358,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   const [aiProfileSheetError, setAiProfileSheetError] = useState<string | null>(null);
   const prevContentRef = useRef<string | undefined>(undefined);
   const imageStatusesRef = useRef<Record<string, ImageStatus>>({});
+  const profileGolfBackgroundForSheetRef = useRef<ProfileGolfBackgroundSheetRef | null>(null);
 
   useEffect(() => {
     imageStatusesRef.current = imageStatuses;
@@ -359,6 +371,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
     setImageStatuses({});
     setIsBatchGenerating(false);
     setIsBannerImageGenerating(false);
+    profileGolfBackgroundForSheetRef.current = null;
   }, [content]);
 
   const imagePromptSlots = useMemo((): ImagePromptSlot[] => {
@@ -611,14 +624,26 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
 
   const aiProfileEnglishPrompt = useMemo(() => aiProfileParsed?.englishPrompt ?? '', [aiProfileParsed]);
 
+  const aiProfileCameraMeters = useMemo(() => {
+    const fromDetail = aiProfileParsed
+      ? parseTeeshotCameraDistanceFromDetail(aiProfileParsed.detailFields['티샷 가상회원 카메라 거리'])
+      : null;
+    if (fromDetail != null) return fromDetail;
+    if (aiPromptTeeshotCameraDistance?.trim()) {
+      return parseTeeshotCameraDistanceMeters(aiPromptTeeshotCameraDistance);
+    }
+    return null;
+  }, [aiProfileParsed, aiPromptTeeshotCameraDistance]);
+
   const aiProfileImagePrompt = useMemo(() => {
     if (!aiProfileParsed?.englishPrompt) return '';
     return buildAiProfileImageGenerationPrompt(
       aiProfileParsed.englishPrompt,
       resolveAiProfileImageIdentity(aiProfileParsed),
-      aiProfileParsed
+      aiProfileParsed,
+      aiProfileCameraMeters
     );
-  }, [aiProfileParsed]);
+  }, [aiProfileParsed, aiProfileCameraMeters]);
 
   const profileImageStatus = imageStatuses[AI_PROFILE_IMAGE_SLOT_ID];
 
@@ -739,6 +764,49 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   const instaCardImageOptions =
     format === 'INSTAGRAM-CARD' ? { modelId: INSTAGRAM_CARD_IMAGE_MODEL_ID } : undefined;
 
+  const aiProfileCustomReferenceImages = useMemo(() => {
+    if (!aiPromptCustomReferenceImage?.dataBase64 || !aiPromptCustomReferenceImage.mimeType) {
+      return undefined;
+    }
+    return [
+      {
+        mimeType: aiPromptCustomReferenceImage.mimeType,
+        data: aiPromptCustomReferenceImage.dataBase64,
+      },
+    ];
+  }, [aiPromptCustomReferenceImage]);
+
+  const buildAiProfileImageGenerationOptions = useCallback(
+    async (extra?: Partial<GenerateImageOptions>): Promise<GenerateImageOptions> => {
+      const golfRef = await loadRandomGolfBackgroundReference();
+      return {
+        modelId: AI_PROFILE_IMAGE_MODEL_ID,
+        aspectRatio: mapAspectRatioForGeminiImage(bannerAspectRatio),
+        imageSize: AI_PROFILE_IMAGE_SIZE,
+        ...(aiProfileCameraMeters != null
+          ? { profileCameraDistanceMeters: aiProfileCameraMeters }
+          : {}),
+        ...(aiProfileCustomReferenceImages?.length
+          ? { profileCustomReferenceImages: aiProfileCustomReferenceImages }
+          : {}),
+        ...(golfRef
+          ? {
+              profileGolfCourseBackgroundImages: [
+                {
+                  mimeType: golfRef.mimeType,
+                  data: golfRef.data,
+                  courseName: golfRef.courseName,
+                  region: golfRef.region,
+                },
+              ],
+            }
+          : {}),
+        ...extra,
+      };
+    },
+    [bannerAspectRatio, aiProfileCameraMeters, aiProfileCustomReferenceImages]
+  );
+
   const aiProfileImageOptions = useMemo(
     (): GenerateImageOptions => ({
       modelId: AI_PROFILE_IMAGE_MODEL_ID,
@@ -823,12 +891,16 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       imageStatusesRef.current = next;
       return next;
     });
-    await generateImageForSlot(
-      AI_PROFILE_IMAGE_SLOT_ID,
-      aiProfileImagePrompt.trim(),
-      aiProfileImageOptions
-    );
-  }, [aiProfileImagePrompt, aiProfileImageOptions, generateImageForSlot]);
+    const options = await buildAiProfileImageGenerationOptions();
+    const golfRef = options.profileGolfCourseBackgroundImages?.[0];
+    if (golfRef?.courseName && golfRef.region) {
+      const sheetRef = buildProfileGolfBackgroundSheetRef(golfRef.courseName, golfRef.region);
+      if (sheetRef) {
+        profileGolfBackgroundForSheetRef.current = sheetRef;
+      }
+    }
+    await generateImageForSlot(AI_PROFILE_IMAGE_SLOT_ID, aiProfileImagePrompt.trim(), options);
+  }, [aiProfileImagePrompt, buildAiProfileImageGenerationOptions, generateImageForSlot]);
 
   const extraProfileImageCount = useMemo(
     () => countGeneratedExtraProfileImages(imageStatuses),
@@ -855,14 +927,17 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
 
     const slotIndex = AI_PROFILE_EXTRA_IMAGE_SLOT_IDS.indexOf(slotId);
     const identity = aiProfileParsed ? resolveAiProfileImageIdentity(aiProfileParsed) : {};
-    const prompt = buildAiProfileExtraImagePrompt(slotIndex, identity.age);
+    const prompt = buildAiProfileExtraImagePrompt(slotIndex, identity.age, aiProfileCameraMeters);
 
-    await generateImageForSlot(slotId, prompt, {
-      ...aiProfileImageOptions,
-      identityReferenceImages: [{ mimeType: parsedRef.mimeType, data: parsedRef.data }],
-      identityReferenceFaceOnly: true,
-    });
-  }, [aiProfileImageOptions, aiProfileParsed, generateImageForSlot, profileImageStatus?.url]);
+    await generateImageForSlot(
+      slotId,
+      prompt,
+      await buildAiProfileImageGenerationOptions({
+        identityReferenceImages: [{ mimeType: parsedRef.mimeType, data: parsedRef.data }],
+        identityReferenceFaceOnly: true,
+      })
+    );
+  }, [aiProfileCameraMeters, aiProfileEnglishPrompt, aiProfileParsed, buildAiProfileImageGenerationOptions, generateImageForSlot, profileImageStatus?.url]);
 
   const handleDownloadProfileImage = useCallback(() => {
     const url = profileImageStatus?.url;
@@ -1507,6 +1582,14 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       const parsed = parseAiPromptForSpreadsheet(cleanedContent);
       const memberMetadata =
         parseAiProfileMemberMetadata(cleanedContent) ?? buildAiProfileMemberMetadataFallback({});
+      const sheetGolfBackground = profileGolfBackgroundForSheetRef.current;
+      const memberForSheet = sheetGolfBackground
+        ? {
+            ...memberMetadata,
+            favoriteGolfCourse: sheetGolfBackground.courseName,
+            activityRegion: sheetGolfBackground.activityRegion,
+          }
+        : memberMetadata;
       const profileStatus = imageStatusesRef.current[AI_PROFILE_IMAGE_SLOT_ID];
       const generatedImageUrl = profileStatus?.s3Url ?? '';
       const extraImageUrls = AI_PROFILE_EXTRA_IMAGE_SLOT_IDS.map(
@@ -1515,7 +1598,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       const promptContent = buildAiProfilePromptContentColumn(parsed);
       const dataRow = buildAiPromptSpreadsheetRow({
         profileImageUrl: generatedImageUrl,
-        member: memberMetadata,
+        member: memberForSheet,
         promptContent,
         extraImageUrls,
       });
@@ -2266,7 +2349,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             className={`rounded-xl border p-5 shadow-sm ${
               sectionIndex === 0
                 ? 'border-[#006B68]/30 bg-[#006B68]/5 dark:border-[#006B68]/40 dark:bg-[#006B68]/10'
-                : `border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800/80`
+                : `border-gray-200 bg-white dark:border-gray-700 dark:bg-black`
             }`}
           >
             {section.heading && (
@@ -2390,7 +2473,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       bannerTextElementsContent.push(
         <div
           key={`banner-bodycopy-${bannerTextElementsContent.length}`}
-          className="mb-4 rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm ring-1 ring-black/5 dark:border-gray-700 dark:from-gray-800/80 dark:to-gray-900/80 dark:ring-white/5"
+          className="mb-4 rounded-xl border border-gray-200 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm ring-1 ring-black/5 dark:border-gray-700 dark:from-black dark:to-black dark:ring-white/5"
         >
           <div className="mb-2">
             <span className={sectionBadgeClass}>바디카피</span>
@@ -2455,7 +2538,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
       } else {
         block = (
           <>
-            <span className={`${sectionBadgeClass} bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200`}>{label}</span>
+            <span className={`${sectionBadgeClass} bg-gray-100 text-gray-700 dark:bg-black dark:text-gray-200 dark:border dark:border-gray-700`}>{label}</span>
             <div className={`mt-2 whitespace-pre-wrap leading-relaxed ${CONTENT_BODY}`}>{text}</div>
           </>
         );
@@ -2919,7 +3002,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
             bannerTextElementsContent.push(
               <div
                 key={`banner-headline-${bannerTextElementsContent.length}`}
-                className={`mb-4 rounded-xl p-4 shadow-sm ring-1 ring-black/5 dark:ring-white/5 border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800/80`}
+                className={`mb-4 rounded-xl p-4 shadow-sm ring-1 ring-black/5 dark:ring-white/5 border border-gray-200 bg-white dark:border-gray-700 dark:bg-black`}
               >
                 <div className="mb-2">
                   <span className={sectionBadgeClass}>헤드라인</span>
@@ -3019,7 +3102,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           pushCard();
           inCard = false;
           elements.push(
-            <div key={key} className={`mt-12 mb-12 p-4 rounded-lg border bg-gradient-to-r from-gray-50 to-blue-50 dark:from-gray-800/80 dark:to-blue-950/30 ${CONTENT_DIVIDER}`}>
+            <div key={key} className={`mt-12 mb-12 p-4 rounded-lg border bg-gradient-to-r from-gray-50 to-blue-50 dark:from-black dark:to-blue-950/30 ${CONTENT_DIVIDER}`}>
               <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center">
                 <span className="mr-2">📸</span>
                 대표 이미지
@@ -3172,7 +3255,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
         pushCard();
         inCard = false;
         elements.push(
-          <div key={key} className={`mt-12 mb-12 p-4 rounded-lg border bg-gradient-to-r from-gray-50 to-blue-50 dark:from-gray-800/80 dark:to-blue-950/30 ${CONTENT_DIVIDER}`}>
+          <div key={key} className={`mt-12 mb-12 p-4 rounded-lg border bg-gradient-to-r from-gray-50 to-blue-50 dark:from-black dark:to-blue-950/30 ${CONTENT_DIVIDER}`}>
             <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center">
               <span className="mr-2">📸</span>
               대표 이미지
@@ -3525,7 +3608,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
   }, [content, format, copiedAiPromptSection, handleCopyAiPromptSection, onSwitchToImageTab, imageStatuses, handleGenerateSingleImage, isNaverBlogFormat, isBannerFormat, isPlainTextBannerSubtype, isInstagramCardFormat, bannerImagePrompt, bannerContentType, eventBannerImagePrompt, sources, profileImageStatus, handleDownloadProfileImage, aiProfileImageOptions, isAiProfileFormat]);
 
   return (
-    <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 min-h-[calc(100vh-13rem)] flex flex-col dark:bg-gray-900 dark:border-gray-800 dark:shadow-black/20">
+    <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 h-full min-h-[calc(100vh-13rem)] flex flex-col dark:bg-black dark:border-gray-800 dark:shadow-black/20">
       {content && !isLoading && (
         <div className="self-end mb-4 flex flex-wrap gap-2 justify-end">
             {isAiProfileFormat && (
@@ -3715,14 +3798,19 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
           />
         </div>
       )}
-      <div className="flex-grow">
-        {isLoading && <ContentLoadingMotion />}
-        {error && <div className="text-red-600 dark:text-red-400 text-center">{error}</div>}
-        {!isLoading && !error && !content && <ContentLoadingMotion />}
+      <div className="relative min-h-0 flex-1">
+        {(isLoading || (!error && !content)) && (
+          <div className="absolute inset-0 flex items-center justify-center p-4 -translate-y-8 sm:-translate-y-10">
+            <ContentLoadingMotion />
+          </div>
+        )}
+        {error && (
+          <div className="relative z-10 text-center text-red-600 dark:text-red-400">{error}</div>
+        )}
         {!isLoading && content && (
             <div className="space-y-4">
               {isAiProfileFormat && (
-                <section className="rounded-xl border border-[#006B68]/30 bg-white p-5 shadow-sm dark:border-[#006B68]/40 dark:bg-gray-800/80">
+                <section className="rounded-xl border border-[#006B68]/30 bg-white p-5 shadow-sm dark:border-[#006B68]/40 dark:bg-black">
                   <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h3 className={`text-lg font-semibold ${CONTENT_TITLE}`}>프로필 이미지</h3>
@@ -3749,7 +3837,7 @@ export const ContentDisplay: React.FC<ContentDisplayProps> = ({
                           : `프로필 외 이미지 생성하기 (${extraProfileImageCount}/5)`}
                       </button>
                       <div className="pointer-events-none absolute right-0 top-full z-20 mt-2 w-72 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                        <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-600 shadow-lg dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300">
+                        <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-600 shadow-lg dark:border-gray-600 dark:bg-black dark:text-gray-300">
                           프로필과 동일 인물로, 다른 장면·의상·구도의 사진을 최대 5장까지 생성합니다.
                         </div>
                       </div>

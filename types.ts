@@ -76,6 +76,11 @@ export interface UserInput {
   aiPromptAdditionalOptions?: AiPromptAdditionalOption[];
   aiPromptRemoveAiEffect?: boolean;
   aiPromptCustomInput?: string;
+  /**
+   * AI 인물 직접 입력란 참고 이미지 — 프로필 이미지 생성 시 포즈·의상·구도·조명·무드 참고.
+   * 가상 프로필의 얼굴·나이 등 정체성은 텍스트 프롬프트를 우선합니다.
+   */
+  aiPromptCustomReferenceImage?: { mimeType: string; dataBase64: string };
   /** 티샷 AI 가상회원 프로필 — 포즈·자세 */
   aiPromptTeeshotPose?: string;
   /** 티샷 AI 가상회원 프로필 — 뒷/옆/앞/3·4 측면 */

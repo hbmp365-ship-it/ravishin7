@@ -12,6 +12,7 @@ import {
   ASPECT_RATIOS,
   buildAiEffectRemovalEnglishBlock,
   GEMINI_NATIVE_IMAGE_MODEL_ID,
+  buildTeeshotCameraDistanceImagePreamble,
   SYSTEM_PROMPT,
 } from '../constants';
 import {
@@ -937,11 +938,18 @@ export type GenerateImageOptions = {
   aspectRatio?: string;
   /** Gemini imageConfig.imageSize — 512(0.5K), 1K, 2K, 4K */
   imageSize?: '512' | '1K' | '2K' | '4K';
+  /** AI 프로필: 직접 입력란 참고 이미지 — 포즈·의상·구도·조명 참고 (인물 정체성은 텍스트 프롬프트 우선) */
+  profileCustomReferenceImages?: Array<{ mimeType: string; data: string }>;
+  /** AI 프로필: 골프장 썸네일 배경 참조 — 야외 코스 배경·분위기 */
+  profileGolfCourseBackgroundImages?: Array<{ mimeType: string; data: string; courseName?: string; region?: string }>;
+  /** 배너 등: 디자인·스타일 참고 이미지 */
   referenceImages?: Array<{ mimeType: string; data: string }>;
   /** AI 프로필: 동일 인물 유지용 참조 사진 */
   identityReferenceImages?: Array<{ mimeType: string; data: string }>;
   /** true면 참조는 얼굴·체형 동일성만 — 의상·포즈·배경·구도는 자유 변경 (프로필 외 이미지용) */
   identityReferenceFaceOnly?: boolean;
+  /** AI 가상 프로필: 사용자가 선택한 카메라 거리(m) — 이미지 생성 직전 최우선 주입 */
+  profileCameraDistanceMeters?: number;
   /** 배경만 생성 후 앱에서 한글 타이포를 UI로 합성할 때: 레퍼런스 복제 완화·안전 영역 강조 */
   typographySafeBackground?: boolean;
   /**
@@ -1010,6 +1018,37 @@ export const generateImage = async (
       }
     }
   }
+  if (options?.profileCustomReferenceImages?.length) {
+    parts.push({
+      text:
+        'Reference photo(s) below: use as **visual guidance** for pose, body language, outfit style, camera angle, framing, background, lighting, and overall mood. ' +
+        'Echo the **scene composition and staging** where it fits the text brief below. ' +
+        'DO NOT copy the reference person\'s exact face or identity — generate the subject described in the prompt (virtual profile). ' +
+        'If custom text conflicts with the reference, follow the text brief for subject details and use the reference mainly for atmosphere and composition.',
+    });
+    for (const img of options.profileCustomReferenceImages.slice(0, 1)) {
+      if (img.data && img.mimeType) {
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+      }
+    }
+  }
+  if (options?.profileGolfCourseBackgroundImages?.length) {
+    for (const img of options.profileGolfCourseBackgroundImages.slice(0, 1)) {
+      const courseLabel = img.courseName?.trim() || 'the reference Korean golf course';
+      parts.push({
+        text:
+          `Reference golf course thumbnail below (${courseLabel}) — **background vista inspiration only**. ` +
+          'Do NOT paste, clone, or near-duplicate this reference image. Do NOT reuse its exact framing, crop, camera angle, or pixel layout. ' +
+          'Instead, **reinterpret** its outdoor golf atmosphere (fairways, greens, rough, bunkers, tree lines, hills, sky, seasonal light, color palette) into a **new** wide background vista **behind** the subject. ' +
+          'The person from the text brief must be the clear foreground subject; the course scenery sits in the mid/background with natural depth (soft background focus acceptable for portraits). ' +
+          `The mood should suggest ${courseLabel} golf course in Korea without copying the thumbnail literally. ` +
+          'Do NOT copy any people, carts, buildings, logos, or readable text/signage from the reference.',
+      });
+      if (img.data && img.mimeType) {
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+      }
+    }
+  }
   if (options?.referenceImages?.length) {
     const refBackgroundPlate =
       'Reference image(s) below: use ONLY as design inspiration — composition, color palette, graphic style, spacing rhythm, and overall mood. ' +
@@ -1044,6 +1083,12 @@ export const generateImage = async (
         'Keep typography readable and on-brand; do not remove required Korean copy unless explicitly requested.',
     });
     parts.push({ inlineData: { mimeType: edit.mimeType, data: edit.data } });
+  }
+
+  if (options?.profileCameraDistanceMeters != null) {
+    parts.push({
+      text: buildTeeshotCameraDistanceImagePreamble(options.profileCameraDistanceMeters),
+    });
   }
 
   parts.push({ text: prompt });
